@@ -8,7 +8,7 @@ export function mockPortfolio(addr: string): Portfolio {
   const A = (symbol: string, chain: string, chainName: string, chainColor: string, amount: number, priceUsd: number) => ({
     symbol, name: symbol, contract: "0x" + symbol.toLowerCase().padEnd(40, "0").slice(0, 40),
     chain, chainName, chainColor, amount, priceUsd,
-    valueUsd: amount * priceUsd, valueHuf: amount * priceUsd * F, allocationPct: 0,
+    valueUsd: amount * priceUsd, valueHuf: amount * priceUsd * F, allocationPct: 0, verified: true,
   });
   const assets = [
     A("ETH", "eth", "Ethereum", "#627eea", 6.62, 1783),
@@ -27,8 +27,8 @@ export function mockPortfolio(addr: string): Portfolio {
   assets.sort((x, y) => y.valueUsd - x.valueUsd);
   return {
     addresses: [addr], chains: ["eth", "base", "arbitrum", "polygon", "gnosis"],
-    totalUsd, totalHuf: totalUsd * F, assetCount: assets.length, dustFiltered: 7, spamFiltered: 2,
-    usdHufFactor: F, perChainUsd, assets,
-    nfts: [], nftCount: 0, chainErrors: [],
+    totalUsd, totalHuf: totalUsd * F, assetCount: assets.length, dustFiltered: 7,
+    usdHufFactor: F, perChainUsd, pricingMode: "allowlist" as const, assets,
+    unverifiedAssets: [], nfts: [], nftCount: 0, chainErrors: [],
   };
 }

@@ -21,11 +21,14 @@ export function PortfolioPanel({ p, currency }: { p: Portfolio; currency: "usd" 
     <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-2xl p-5 mb-6">
       <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
         <div>
-          <h3 className="text-sm font-semibold text-slate-200">Portfólió — {p.assetCount} eszköz, {p.chains.length} lánc</h3>
+          <h3 className="text-sm font-semibold text-slate-200">Portfólió — {p.assetCount} ellenőrzött eszköz, {p.chains.length} lánc</h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            {(p.dustFiltered + p.spamFiltered) > 0 && (
-              <span className="text-slate-600">{p.dustFiltered} dust · {p.spamFiltered} gyanús árazású kiszűrve · </span>
-            )}
+            <span className="text-slate-600">
+              ár-forrás: {p.pricingMode === "coingecko" ? "CoinGecko (teljes)" : "curated allowlist (keyless)"}
+              {p.dustFiltered > 0 && ` · ${p.dustFiltered} dust szűrve`}
+              {p.unverifiedAssets.length > 0 && ` · ${p.unverifiedAssets.length} nem ellenőrzött árú (nincs a totálban)`}
+              {" · "}
+            </span>
             {p.chainErrors.length > 0 && <span className="text-amber-400/70">{p.chainErrors.join(", ")} lánc most nem elérhető</span>}
           </p>
         </div>
@@ -74,6 +77,25 @@ export function PortfolioPanel({ p, currency }: { p: Portfolio; currency: "usd" 
           ))}
         </div>
       </div>
+
+      {/* Nem ellenőrzött árú tokenek — láthatók, de NINCSENEK a totálban (a
+          Blockscout-ár spam-tokeneknél hamis lehet; itt csak a mennyiség biztos). */}
+      {p.unverifiedAssets.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-white/5">
+          <p className="text-xs text-slate-500 mb-2">
+            Nem ellenőrzött árú tokenek ({p.unverifiedAssets.length}) — a mennyiség valós, de az árat nem
+            tudtuk megbízhatóan igazolni, ezért NEM számoltuk a portfólió-értékbe.
+            {p.pricingMode === "allowlist" && " (Saját ingyenes CoinGecko-kulccsal ezek is árazódnak.)"}
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {p.unverifiedAssets.slice(0, 24).map((a, i) => (
+              <span key={a.chain + a.contract + i} className="text-[11px] px-2 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400">
+                {a.symbol} <span className="text-slate-600">{a.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

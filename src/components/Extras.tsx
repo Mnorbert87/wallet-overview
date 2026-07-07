@@ -57,7 +57,7 @@ export function NftGallery({ nfts, total }: { nfts: NftItem[]; total: number }) 
         {nfts.map((n, i) => (
           <div key={i} className="aspect-square rounded-xl overflow-hidden bg-white/5 border border-cyan/10 flex items-center justify-center">
             {n.image ? (
-              <img src={n.image} alt={n.collection} loading="lazy" className="w-full h-full object-cover"
+              <img src={n.image} alt={n.collection} loading="lazy" referrerPolicy="no-referrer" className="w-full h-full object-cover"
                 onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
             ) : (
               <div className="text-[10px] text-slate-500 text-center px-1 leading-tight">{n.collection}</div>

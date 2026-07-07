@@ -13,34 +13,54 @@ export const CHAINS: Chain[] = [
 ];
 
 const CG = "https://api.coingecko.com/api/v3";
+const CG_KEY = (import.meta.env.VITE_COINGECKO_KEY as string) || "";
 const DUST_USD = 0.01;
-// Spam-ár guard: a Blockscout exchange_rate spam-tokeneknél hamisan felfújható
-// (láttunk $800M+ fake pozíciót). Egy nem-major token egyetlen pozíciója
-// SPAM_CAP fölött szinte biztos hamis árazás → kiszűrjük ("gyanús árazás").
-// A majorok (valódi likvid tokenek) whitelistelve, rájuk nincs cap.
-const SPAM_CAP_USD = 1_000_000;
-const MAJORS = new Set([
-  "ETH", "WETH", "USDC", "USDT", "DAI", "WBTC", "cbETH", "wstETH", "stETH", "rETH",
-  "POL", "MATIC", "WPOL", "ARB", "OP", "xDAI", "WXDAI", "GNO", "LINK", "UNI", "AAVE",
-  "USDC.e", "USDbC", "BAL", "CRV", "LDO", "MKR", "SNX", "COMP", "FRAX", "USDe", "sUSDe",
+
+// ── ÁR-MEGBÍZHATÓSÁG (kritikus, audit 2026-07-07) ─────────────────────────────
+// A Blockscout `exchange_rate` a LONG-TAIL tokeneknél megbízhatatlan: spam-
+// tokeneknek hamis árat ad (láttunk $2.8Mrd fake pozíciót), így a nyers összeg
+// HAMIS. Nem trükközünk: a headline-értéket CSAK megbízható árforrásból számoljuk.
+//   1) VAN CoinGecko-kulcs (VITE_COINGECKO_KEY, ingyenes Demo): batch kereszt-
+//      ellenőrzés — a token USD-értéke csak akkor számít, ha a CoinGecko listázza
+//      a contractot (a spam nem listázott → 0). Teljes, pontos, spam-mentes.
+//   2) NINCS kulcs (keyless): CSAK a curated allowlist (valódi likvid tokenek) +
+//      native számít a headline-be; a többi token "árazás nem ellenőrzött"
+//      szekcióba kerül, $0 a totálban — SOHA nem mutatunk felfújt hamis összeget.
+const ALLOWLIST = new Set([
+  // stablecoinok + native + wrapped
+  "ETH", "WETH", "WBTC", "USDC", "USDT", "DAI", "USDC.E", "USDBC", "USDS", "USDE",
+  "SUSDE", "FRAX", "LUSD", "GHO", "PYUSD", "TUSD", "USDD", "CRVUSD", "FDUSD",
+  "POL", "MATIC", "WPOL", "WMATIC", "ARB", "OP", "XDAI", "WXDAI", "GNO", "BNB",
+  "CBETH", "WSTETH", "STETH", "RETH", "WEETH", "EETH", "EZETH", "RSETH", "PAXG", "XAUT",
+  // blue-chip DeFi + likvid alts (a Binance-teszt valódi tokenjei)
+  "LINK", "UNI", "AAVE", "MKR", "SNX", "COMP", "CRV", "LDO", "BAL", "SUSHI", "1INCH",
+  "PEPE", "SHIB", "ONDO", "ENA", "EIGEN", "WLD", "PENDLE", "AXS", "SAND", "MANA",
+  "GRT", "IMX", "RENDER", "INJ", "FET", "STG", "ZRO", "PORTAL", "ID", "NMR", "BNT",
+  "GLM", "PHA", "AMP", "AXL", "APE", "BLUR", "ENS", "CVX", "FXS", "RPL", "SPELL",
+  "DYDX", "GMX", "MAGIC", "RDNT", "PENGU", "MOG", "TURBO", "NEIRO", "FLOKI",
 ]);
+
+/** CoinGecko platform-slug a token_price kereszt-ellenőrzéshez. */
+const CG_PLATFORM: Record<string, string> = {
+  eth: "ethereum", base: "base", arbitrum: "arbitrum-one",
+  polygon: "polygon-pos", gnosis: "xdai",
+};
 
 export interface Asset {
   symbol: string; name: string; contract: string; chain: string; chainName: string; chainColor: string;
   amount: number; priceUsd: number; valueUsd: number; valueHuf: number; allocationPct: number;
+  verified: boolean; // az ár megbízható forrásból (allowlist v. CoinGecko)
 }
 export interface Nft { collection: string; tokenId: string; image: string | null; chain: string; }
 export interface Portfolio {
   addresses: string[]; chains: string[];
   totalUsd: number; totalHuf: number; assetCount: number; dustFiltered: number;
-  spamFiltered: number;
   usdHufFactor: number; perChainUsd: Record<string, number>;
-  assets: Asset[]; nfts: Nft[]; nftCount: number;
+  pricingMode: "coingecko" | "allowlist"; // hogyan ellenőriztük az árat
+  assets: Asset[];           // VERIFIED — ezek adják a headline totált
+  unverifiedAssets: Asset[]; // nem ellenőrzött árú tokenek (NEM a totálban)
+  nfts: Nft[]; nftCount: number;
   chainErrors: string[];
-}
-
-function isSuspiciousPrice(a: Asset): boolean {
-  return a.valueUsd > SPAM_CAP_USD && !MAJORS.has(a.symbol.toUpperCase());
 }
 
 async function jget(url: string, ms = 15000): Promise<any> {
@@ -68,20 +88,24 @@ async function chainAssets(addr: string, chain: Chain, factor: number): Promise<
   ]);
   const assets: Asset[] = [];
   let dust = 0;
-  const mk = (symbol: string, name: string, contract: string, amount: number, rate: number): Asset => ({
+  const mk = (symbol: string, name: string, contract: string, amount: number, rate: number, verified: boolean): Asset => ({
     symbol, name, contract, chain: chain.id, chainName: chain.name, chainColor: chain.color,
-    amount, priceUsd: rate, valueUsd: amount * rate, valueHuf: amount * rate * factor, allocationPct: 0,
+    amount, priceUsd: rate, valueUsd: amount * rate, valueHuf: amount * rate * factor, allocationPct: 0, verified,
   });
   const nAmt = Number(acct.coin_balance || 0) / 1e18;
   const nRate = Number(acct.exchange_rate || 0);
-  if (nAmt * nRate >= DUST_USD) assets.push(mk(chain.native, chain.name + " " + chain.native, "native", nAmt, nRate));
+  // A native coin ára megbízható (a lánc alap-eszköze) → mindig verified.
+  if (nAmt * nRate >= DUST_USD) assets.push(mk(chain.native, chain.name + " " + chain.native, "native", nAmt, nRate, true));
   for (const it of toks.items || []) {
     const t = it.token || {};
     const dec = Number.isFinite(+t.decimals) ? +t.decimals : 18;
     const amt = Number(it.value || 0) / 10 ** dec;
     const rate = Number(t.exchange_rate || 0);
     if (amt * rate < DUST_USD || rate <= 0) { dust++; continue; }
-    assets.push(mk(t.symbol || "?", t.name || "", (t.address || "").toLowerCase(), amt, rate));
+    // keyless verified = az allowlisten szereplő valódi likvid token (a spam nem az).
+    // CoinGecko-kulccsal ezt később felülírja a batch kereszt-ellenőrzés.
+    const verified = ALLOWLIST.has((t.symbol || "").toUpperCase());
+    assets.push(mk(t.symbol || "?", t.name || "", (t.address || "").toLowerCase(), amt, rate, verified));
   }
   const nfts: Nft[] = (nftRes.items || []).slice(0, 12).map((n: any) => ({
     collection: (n.token || {}).name || "NFT", tokenId: String(n.id || "").slice(0, 8),
@@ -111,7 +135,7 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[]): P
     if (!r.ok) { if (!chainErrors.includes(r.chain)) chainErrors.push(r.chain); continue; }
     assets.push(...r.assets); nfts.push(...r.nfts); nftCount += r.nftCount; dustFiltered += r.dust;
   }
-  // azonos (symbol+chain) tételek összevonása több cím esetén
+  // azonos (contract+chain) tételek összevonása több cím esetén
   const merged = new Map<string, Asset>();
   for (const a of assets) {
     const k = `${a.chain}:${a.contract}:${a.symbol}`;
@@ -119,20 +143,55 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[]): P
     if (e) { e.amount += a.amount; e.valueUsd += a.valueUsd; e.valueHuf += a.valueHuf; }
     else merged.set(k, { ...a });
   }
-  // spam-ár guard: gyanús árazású nem-major pozíciók kiszűrése
-  const all = [...merged.values()];
-  const spamFiltered = all.filter(isSuspiciousPrice).length;
-  const list = all.filter((a) => !isSuspiciousPrice(a)).sort((x, y) => y.valueUsd - x.valueUsd);
-  const totalUsd = list.reduce((s, a) => s + a.valueUsd, 0);
-  for (const a of list) {
+  const allAssets = [...merged.values()];
+
+  // CoinGecko-kulcs esetén: batch kereszt-ellenőrzés — a token USD-értéke csak
+  // akkor "verified", ha a CoinGecko listázza a contractot (spam → nem listázott).
+  let pricingMode: "coingecko" | "allowlist" = "allowlist";
+  if (CG_KEY) {
+    pricingMode = "coingecko";
+    await crossCheckCoinGecko(allAssets, factor);
+  }
+
+  const verified = allAssets.filter((a) => a.verified).sort((x, y) => y.valueUsd - x.valueUsd);
+  const unverified = allAssets.filter((a) => !a.verified).sort((x, y) => y.valueUsd - x.valueUsd);
+  const totalUsd = verified.reduce((s, a) => s + a.valueUsd, 0);
+  for (const a of verified) {
     a.allocationPct = totalUsd ? (100 * a.valueUsd) / totalUsd : 0;
     perChainUsd[a.chain] = (perChainUsd[a.chain] || 0) + a.valueUsd;
   }
   return {
     addresses, chains: chainIds, totalUsd, totalHuf: totalUsd * factor,
-    assetCount: list.length, dustFiltered, spamFiltered, usdHufFactor: factor, perChainUsd,
-    assets: list, nfts: nfts.slice(0, 24), nftCount, chainErrors,
+    assetCount: verified.length, dustFiltered, usdHufFactor: factor, perChainUsd, pricingMode,
+    assets: verified, unverifiedAssets: unverified.slice(0, 40), nfts: nfts.slice(0, 24), nftCount, chainErrors,
   };
+}
+
+/** CoinGecko batch token-ár kereszt-ellenőrzés (Demo-kulccsal, 100 contract/hívás).
+ *  Minden asset ára a CoinGecko-ra íródik felül; ami nincs listázva → verified=false. */
+async function crossCheckCoinGecko(assets: Asset[], factor: number): Promise<void> {
+  const byChain = new Map<string, Asset[]>();
+  for (const a of assets) {
+    if (a.contract === "native") continue; // native már verified
+    (byChain.get(a.chain) || byChain.set(a.chain, []).get(a.chain)!).push(a);
+  }
+  for (const [chain, list] of byChain) {
+    const platform = CG_PLATFORM[chain];
+    if (!platform) { for (const a of list) a.verified = false; continue; }
+    for (let i = 0; i < list.length; i += 100) {
+      const batch = list.slice(i, i + 100);
+      const addrs = batch.map((a) => a.contract).join(",");
+      try {
+        const j = await jget(`${CG}/simple/token_price/${platform}?contract_addresses=${addrs}&vs_currencies=usd&x_cg_demo_api_key=${CG_KEY}`, 12000);
+        for (const a of batch) {
+          const px = j[a.contract]?.usd;
+          if (typeof px === "number" && px > 0) {
+            a.priceUsd = px; a.valueUsd = a.amount * px; a.valueHuf = a.valueUsd * factor; a.verified = true;
+          } else { a.verified = false; } // nem listázott = nem ellenőrzött árú
+        }
+      } catch { for (const a of batch) a.verified = a.verified; } // hiba → marad az allowlist-döntés
+    }
+  }
 }
 
 // ENS → cím feloldás (keyless, ensdata.net). Cím-visszafelé is: cím → ens név.

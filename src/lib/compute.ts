@@ -34,6 +34,7 @@ export interface Overview {
   mostActiveMonth: { ym: string; count: number } | null;
   txRows: TxRow[];       // egyesített, idő szerint csökkenő
   tokenSymbols: string[];
+  counterparties: { address: string; count: number }[]; // top interakciós címek
 }
 
 export async function buildOverview(address: string): Promise<Overview> {
@@ -51,6 +52,7 @@ export async function buildOverview(address: string): Promise<Overview> {
   const outflow: DualValue = { eth: 0, usd: 0, huf: 0 };
   const monthMap = new Map<string, MonthFlow>();
   const monthCount = new Map<string, number>();
+  const cpCount = new Map<string, number>();
   const rows: TxRow[] = [];
 
   const bump = (ym: string, k: "in" | "out", usd: number, huf: number) => {
@@ -62,6 +64,8 @@ export async function buildOverview(address: string): Promise<Overview> {
   for (const t of normal) {
     const ym = new Date(t.timeStamp * 1000).toISOString().slice(0, 7);
     monthCount.set(ym, (monthCount.get(ym) || 0) + 1);
+    const cp = t.isOutgoing ? t.to : t.from;
+    if (cp && cp !== addr) cpCount.set(cp, (cpCount.get(cp) || 0) + 1);
     const p = priceAt(pmap, t.timeStamp);
     // gas: csak a wallet által küldött tx-en (a küldő fizeti)
     let gasUsd = 0, gasHuf = 0;
@@ -117,5 +121,9 @@ export async function buildOverview(address: string): Promise<Overview> {
     mostActiveMonth: most,
     txRows: rows.slice(0, 200),
     tokenSymbols: [...new Set(tokens.map((t) => t.symbol))].slice(0, 12),
+    counterparties: [...cpCount.entries()]
+      .map(([address, count]) => ({ address, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6),
   };
 }

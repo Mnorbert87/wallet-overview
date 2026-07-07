@@ -1,29 +1,42 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { buildOverview, Overview } from "./lib/compute";
+import { fetchHoldings, HoldingsResult } from "./lib/holdings";
 import { mockOverview } from "./lib/mock";
 import { isEthAddress, shortAddr, fmtDate, monthLabel, fmtEth } from "./lib/format";
-
-const HAS_KEY = !!(import.meta.env.VITE_ETHERSCAN_KEY as string);
 import { MetricCard, InfoCard } from "./components/MetricCard";
 import { CashflowChart } from "./components/CashflowChart";
 import { TxTable } from "./components/TxTable";
+import { HoldingsPanel } from "./components/HoldingsPanel";
+import { StoryCard, Counterparties, NftGallery, ApprovalsNotice } from "./components/Extras";
+
+const HAS_KEY = !!(import.meta.env.VITE_ETHERSCAN_KEY as string);
 
 const DEMO = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"; // vitalik.eth
 
 export default function App() {
   const [addr, setAddr] = useState("");
   const [data, setData] = useState<Overview | null>(null);
+  const [holdings, setHoldings] = useState<HoldingsResult | null>(null);
+  const [hErr, setHErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [primary, setPrimary] = useState<"usd" | "huf">("usd"); // domináns pénznem
   const [isMock, setIsMock] = useState(false);
 
+  // A token-holdings KULCS NÉLKÜL jön (Blockscout) — mindig valós, akkor is ha
+  // az aktivitás-oldal (Etherscan) mockra esik.
+  const loadHoldings = async (a: string) => {
+    setHoldings(null); setHErr(null);
+    try { setHoldings(await fetchHoldings(a)); }
+    catch (e) { setHErr((e as Error).message || "holdings betöltési hiba"); }
+  };
+
   const loadDemo = () => {
-    setError(null);
-    if (HAS_KEY) { setAddr(DEMO); run(DEMO); return; }
-    // Kulcs nélkül: beépített mock, hogy a dashboard teljes egészében látszódjon.
-    setIsMock(true); setAddr(DEMO); setData(mockOverview());
+    setError(null); setAddr(DEMO);
+    loadHoldings(DEMO); // valós holdings kulcs nélkül is
+    if (HAS_KEY) { run(DEMO); return; }
+    setIsMock(true); setData(mockOverview());
   };
 
   const run = async (value: string) => {
@@ -31,10 +44,13 @@ export default function App() {
     const a = value.trim();
     if (!isEthAddress(a)) { setError("Adj meg egy érvényes ETH-címet (0x…40 hex)."); return; }
     setError(null); setLoading(true); setData(null);
+    loadHoldings(a);
     try {
       setData(await buildOverview(a));
     } catch (e) {
-      setError((e as Error).message || "Hiba a lekérdezésnél.");
+      // Az aktivitás-oldal (Etherscan) elhasalt, de a holdings kulcs nélkül megvan.
+      if (!HAS_KEY) { setIsMock(true); setData(mockOverview()); }
+      else setError((e as Error).message || "Hiba a lekérdezésnél.");
     } finally {
       setLoading(false);
     }
@@ -111,7 +127,9 @@ export default function App() {
           </div>
         )}
 
-        {data && !loading && <Result data={data} primary={primary} />}
+        {(data || holdings) && !loading && (
+          <Result data={data} holdings={holdings} hErr={hErr} primary={primary} />
+        )}
 
         {!data && !loading && !error && (
           <div className="text-center text-slate-500 py-24 text-sm">
@@ -129,8 +147,9 @@ export default function App() {
   );
 }
 
-function Result({ data, primary }: { data: Overview; primary: "usd" | "huf" }) {
+function Result({ data, holdings, hErr, primary }: { data: Overview | null; holdings: HoldingsResult | null; hErr: string | null; primary: "usd" | "huf" }) {
   const cur = primary;
+  const headAddr = data?.address || holdings?.address || "";
   return (
     <div>
       {/* Tárca-fejléc */}
@@ -140,65 +159,76 @@ function Result({ data, primary }: { data: Overview; primary: "usd" | "huf" }) {
       >
         <div>
           <div className="text-xs uppercase tracking-widest text-cyan-soft/70">Tárca</div>
-          <div className="text-lg font-semibold font-mono">{shortAddr(data.address)}</div>
+          <div className="text-lg font-semibold font-mono">{shortAddr(headAddr)}</div>
         </div>
-        <div className="text-right">
-          <div className="text-xs text-slate-400">Becsült ETH-egyenleg (net mozgás)</div>
-          <div className="text-lg font-semibold">{fmtEth(Math.max(0, data.balanceEth))}</div>
-        </div>
+        {holdings && (
+          <div className="text-right">
+            <div className="text-xs text-slate-400">Portfólió összérték</div>
+            <div className="text-lg font-semibold cyan-text">
+              {cur === "usd" ? `$${Math.round(holdings.totalUsd).toLocaleString("en-US")}` : `${Math.round(holdings.totalHuf).toLocaleString("hu-HU")} Ft`}
+            </div>
+          </div>
+        )}
       </motion.div>
 
-      {/* Metrika-kártyák — mind USD + HUF */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <MetricCard
-          label="Elégetett gas összesen"
-          usd={data.gas.usd} huf={data.gas.huf} primary={cur}
-          hero animate sub={`${fmtEth(data.gas.eth)} · a te tranzakcióid díja`}
-        />
-        <MetricCard label="Beérkezett (ETH, akkori árf.)" usd={data.inflow.usd} huf={data.inflow.huf} primary={cur} animate delay={0.05} />
-        <MetricCard label="Kiment (ETH, akkori árf.)" usd={data.outflow.usd} huf={data.outflow.huf} primary={cur} animate delay={0.1} />
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-        <InfoCard label="Tranzakciók" value={String(data.txCount)} sub={`${data.tokenTxCount} token-transzfer`} delay={0.05} />
-        <InfoCard label="Első tx" value={fmtDate(data.firstTx)} delay={0.1} />
-        <InfoCard label="Utolsó tx" value={fmtDate(data.lastTx)} delay={0.15} />
-        <InfoCard
-          label="Legaktívabb hónap"
-          value={data.mostActiveMonth ? monthLabel(data.mostActiveMonth.ym) : "—"}
-          sub={data.mostActiveMonth ? `${data.mostActiveMonth.count} tx` : undefined}
-          delay={0.2}
-        />
-      </div>
-
-      {/* Cashflow-grafikon */}
-      <div className="glass rounded-2xl p-5 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-slate-200">Havi ETH-cashflow ({cur.toUpperCase()})</h3>
-          <div className="flex gap-3 text-xs text-slate-400">
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-cyan inline-block" /> Beérkezett</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-500 inline-block" /> Kiment</span>
-          </div>
-        </div>
-        <CashflowChart data={data.monthly} currency={cur} />
-      </div>
-
-      {/* Tx-tábla */}
-      <TxTable rows={data.txRows} currency={cur} />
-
-      {data.tokenSymbols.length > 0 && (
-        <div className="mt-5 glass rounded-2xl p-5">
-          <h3 className="text-sm font-semibold text-slate-200 mb-3">Érintett tokenek</h3>
-          <div className="flex flex-wrap gap-2">
-            {data.tokenSymbols.map((s) => (
-              <span key={s} className="px-3 py-1 rounded-lg text-xs bg-white/5 border border-cyan/15 text-slate-300">{s}</span>
-            ))}
-          </div>
-          <p className="text-xs text-slate-500 mt-3">
-            A token-értékek USD/HUF árazása a 2. körben jön (per-token árfolyam); most a mennyiség és a darab látszik.
-          </p>
+      {/* PRIORITÁS 1 — teljes token-holdings (kulcs nélkül, valós) */}
+      {holdings && <HoldingsPanel data={holdings} currency={cur} />}
+      {!holdings && (
+        <div className="glass rounded-2xl p-5 mb-6 text-sm text-slate-400">
+          {hErr ? `Token-portfólió: ${hErr}` : "Token-portfólió betöltése (Blockscout)…"}
         </div>
       )}
+
+      {/* Aktivitás / gas — Etherscan (kulccsal valós, kulcs nélkül mock) */}
+      {data && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <MetricCard
+              label="Elégetett gas összesen"
+              usd={data.gas.usd} huf={data.gas.huf} primary={cur}
+              hero animate sub={`${fmtEth(data.gas.eth)} · a te tranzakcióid díja`}
+            />
+            <MetricCard label="Beérkezett (ETH, akkori árf.)" usd={data.inflow.usd} huf={data.inflow.huf} primary={cur} animate delay={0.05} />
+            <MetricCard label="Kiment (ETH, akkori árf.)" usd={data.outflow.usd} huf={data.outflow.huf} primary={cur} animate delay={0.1} />
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+            <InfoCard label="Tranzakciók" value={String(data.txCount)} sub={`${data.tokenTxCount} token-transzfer`} delay={0.05} />
+            <InfoCard label="Első tx" value={fmtDate(data.firstTx)} delay={0.1} />
+            <InfoCard label="Utolsó tx" value={fmtDate(data.lastTx)} delay={0.15} />
+            <InfoCard
+              label="Legaktívabb hónap"
+              value={data.mostActiveMonth ? monthLabel(data.mostActiveMonth.ym) : "—"}
+              sub={data.mostActiveMonth ? `${data.mostActiveMonth.count} tx` : undefined}
+              delay={0.2}
+            />
+          </div>
+
+          <StoryCard ov={data} currency={cur} />
+
+          <div className="glass rounded-2xl p-5 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-slate-200">Havi ETH-cashflow ({cur.toUpperCase()})</h3>
+              <div className="flex gap-3 text-xs text-slate-400">
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-cyan inline-block" /> Beérkezett</span>
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-500 inline-block" /> Kiment</span>
+              </div>
+            </div>
+            <CashflowChart data={data.monthly} currency={cur} />
+          </div>
+
+          <Counterparties ov={data} />
+        </>
+      )}
+
+      {/* NFT-galéria (kulcs nélkül, valós) */}
+      {holdings && <NftGallery nfts={holdings.nfts} total={holdings.nftCount} />}
+
+      {/* Aktivitás tx-tábla */}
+      {data && <TxTable rows={data.txRows} currency={cur} />}
+
+      {/* Approvals — őszinte 3.-körös jelzés (nincs fake adat) */}
+      <div className="mt-6"><ApprovalsNotice /></div>
     </div>
   );
 }

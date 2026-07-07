@@ -51,5 +51,11 @@ export function mockOverview(): Overview {
     mostActiveMonth: { ym: "2021-11", count: 47 },
     txRows: rows(),
     tokenSymbols: ["USDC", "WETH", "DAI", "UNI", "LINK", "ENS"],
+    counterparties: [
+      { address: "0x7a250d5630b4cf539739df2c5dacb4c659f2488d", count: 38 }, // Uniswap V2 Router
+      { address: "0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f", count: 21 }, // SushiSwap Router
+      { address: "0x00000000006c3852cbef3e08e8df289169ede581", count: 14 }, // Seaport
+      { address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", count: 9 }, // USDC
+    ],
   };
 }

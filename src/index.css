@@ -38,3 +38,9 @@ body {
     color: transparent;
   }
 }
+
+/* PDF / nyomtatás: interaktív vezérlők elrejtése, tiszta fehér-mentes háttér */
+@media print {
+  .no-print { display: none !important; }
+  body { background: #0b1020 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

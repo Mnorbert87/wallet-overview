@@ -69,20 +69,24 @@ export function NftGallery({ nfts, total }: { nfts: NftItem[]; total: number }) 
   );
 }
 
-// Approvals — ŐSZINTE placeholder: valós allowance-adat Etherscan Approval-event
-// logokat (kulcs) v. RPC-t igényel; NEM fake-elünk semmit.
-export function ApprovalsNotice() {
+// Approvals biztonsági panel — VALÓS, egy-kattintásos revoke.cash deep-link a
+// cím token-engedélyeinek ellenőrzésére/visszavonására. A revoke.cash a vezető
+// ingyenes eszköz erre; a cím elő van töltve. (A teljes IN-APP allowance-lista
+// Approval-event logokat/RPC-t igényel — az a 4. kör; itt semmi fake nincs.)
+export function ApprovalsPanel({ address }: { address: string }) {
   return (
     <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}
-      className="glass rounded-2xl p-5 mb-6 border-l-2 border-amber-400/40">
-      <h3 className="text-sm font-semibold text-slate-200 mb-1">Biztonsági approvals-panel</h3>
-      <p className="text-xs text-slate-400 leading-relaxed">
-        Az aktív ERC-20 allowance-ok (mit engedélyeztél és kinek) + egy-kattintásos visszavonás a
-        <b className="text-slate-300"> 3. körben</b> jön: valós allowance-adat Etherscan Approval-event
-        logokat (API-kulcs) vagy egy RPC-multicall-t igényel — kulcs nélkül NEM megjeleníthető adat, ezért
-        itt nem mutatunk kitalált értéket. A revoke-deep-link a <span className="text-cyan-soft">revoke.cash</span>-re
-        mutat majd.
+      className="glass rounded-2xl p-5 mb-6 border-l-2 border-cyan/40">
+      <h3 className="text-sm font-semibold text-slate-200 mb-1">Biztonsági — token-engedélyek (approvals)</h3>
+      <p className="text-xs text-slate-400 leading-relaxed mb-3">
+        Az aktív ERC-20/NFT engedélyek (mit engedélyeztél és kinek) a pénzed legnagyobb rejtett
+        kockázata. Ellenőrizd és vond vissza egy kattintással a vezető ingyenes eszközön — a címed
+        előre kitöltve. (A teljes in-app engedély-lista a 4. körben jön; kitalált adatot itt nem mutatunk.)
       </p>
+      <a href={`https://revoke.cash/address/${address}`} target="_blank" rel="noopener noreferrer"
+        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-cyan-soft to-cyan text-ink font-semibold hover:brightness-110 transition no-print">
+        Engedélyek ellenőrzése a revoke.cash-en →
+      </a>
     </motion.div>
   );
 }

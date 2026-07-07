@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { buildOverview, Overview } from "./lib/compute";
-import { fetchPortfolio, resolveInput, Portfolio, CHAINS } from "./lib/multichain";
+import { resolveInput, Portfolio, CHAINS } from "./lib/multichain";
+import { fetchWatchlist } from "./lib/aggregate";
+import { Wallet, loadWallets, addWallet, removeWallet, renameWallet } from "./lib/wallets";
 import { mockOverview } from "./lib/mock";
 import { mockPortfolio } from "./lib/mockPortfolio";
 import { isEthAddress, shortAddr, fmtDate, monthLabel, fmtEth } from "./lib/format";
@@ -9,15 +11,19 @@ import { MetricCard, InfoCard } from "./components/MetricCard";
 import { CashflowChart } from "./components/CashflowChart";
 import { TxTable } from "./components/TxTable";
 import { PortfolioPanel } from "./components/PortfolioPanel";
+import { Watchlist } from "./components/Watchlist";
 import { StoryCard, Counterparties, NftGallery, ApprovalsPanel } from "./components/Extras";
 
 const HAS_KEY = !!(import.meta.env.VITE_ETHERSCAN_KEY as string);
 const ALL_CHAINS = CHAINS.map((c) => c.id);
 
 const DEMO = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"; // vitalik.eth
+const DEMO_SOL = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU";
+const DEMO_BTC = "bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97";
 
 export default function App() {
   const [addr, setAddr] = useState("");
+  const [wallets, setWallets] = useState<Wallet[]>([]);
   const [data, setData] = useState<Overview | null>(null);
   const [pf, setPf] = useState<Portfolio | null>(null);
   const [ens, setEns] = useState<string | null>(null);
@@ -28,54 +34,67 @@ export default function App() {
   const [primary, setPrimary] = useState<"usd" | "huf">("usd"); // domináns pénznem
   const [isMock, setIsMock] = useState(false);
 
-  // Bemenet: egy vagy több cím ÉS/VAGY ENS-név (vessző/szóköz elválasztva).
-  const parseInputs = async (raw: string): Promise<string[]> => {
-    const parts = raw.split(/[\s,]+/).filter(Boolean);
-    const out: string[] = [];
-    let firstEns: string | null = null;
+  // Perzisztens watchlist betöltése induláskor.
+  useEffect(() => { setWallets(loadWallets()); }, []);
+
+  // Az összevont portfólió a figyelt tárcákból (EVM+SOL+BTC), amikor a lista v.
+  // a lánc-szűrő változik. Watch-only, keyless.
+  useEffect(() => {
+    if (!wallets.length) { setPf(null); return; }
+    let cancelled = false;
+    setPLoading(true);
+    fetchWatchlist(wallets, chains)
+      .then((p) => { if (!cancelled) setPf(p.assetCount || p.unverifiedAssets.length ? p : (HAS_KEY ? p : mockPortfolio(wallets[0].address))); })
+      .catch(() => { if (!cancelled && !HAS_KEY) setPf(mockPortfolio(wallets[0].address)); })
+      .finally(() => { if (!cancelled) setPLoading(false); });
+    return () => { cancelled = true; };
+  }, [wallets, chains]);
+
+  // Az aktivitás/gas oldal az első EVM tárcára (Etherscan; kulcs nélkül mock).
+  useEffect(() => {
+    const firstEvm = wallets.find((w) => w.type === "evm");
+    if (!firstEvm) { setData(null); return; }
+    let cancelled = false;
+    setLoading(true);
+    buildOverview(firstEvm.address)
+      .then((d) => { if (!cancelled) { setData(d); setIsMock(false); } })
+      .catch(() => { if (!cancelled && !HAS_KEY) { setData(mockOverview()); setIsMock(true); } })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [wallets]);
+
+  // Cím(ek)/ENS hozzáadása a watchlisthez (a fő input és a Demó ezt hívja).
+  const addToWatchlist = (rawAddr: string, label: string): string | undefined => {
+    const { list, error: e } = addWallet(wallets, rawAddr, label);
+    if (e) return e;
+    setWallets(list);
+  };
+
+  const run = async () => {
+    setError(null);
+    const parts = addr.split(/[\s,]+/).filter(Boolean);
+    if (!parts.length) { setError("Adj meg egy címet (ETH 0x… / SOL base58 / BTC bc1…) vagy ENS-nevet."); return; }
+    let added = 0, lastErr: string | undefined;
+    let cur = wallets;
     for (const part of parts) {
-      const r = await resolveInput(part);
-      if (r.address) out.push(r.address.toLowerCase());
-      if (r.ens && !firstEns) firstEns = r.ens;
+      const r = await resolveInput(part); // ENS → cím
+      const use = r.address || part;
+      const { list, error: e } = addWallet(cur, use, r.ens || "");
+      if (e) lastErr = e; else { cur = list; added++; }
     }
-    setEns(firstEns);
-    return [...new Set(out)];
+    setWallets(cur);
+    if (added) setAddr("");
+    else if (lastErr) setError(lastErr);
   };
 
-  // Multichain portfólió KULCS NÉLKÜL (Blockscout) — a flagship "ingyen" nézet.
-  const loadPortfolio = async (addrs: string[]) => {
-    setPf(null); setPLoading(true);
-    try {
-      const p = await fetchPortfolio(addrs, chains);
-      // ha minden lánc elhasalt / üres és nincs kulcs → mock, hogy a demó ne legyen üres
-      if (p.assetCount === 0 && p.chainErrors.length === chains.length) throw new Error("empty");
-      setPf(p);
-    } catch {
-      if (!HAS_KEY) setPf(mockPortfolio(addrs[0] || DEMO));
-    } finally { setPLoading(false); }
-  };
-
-  const loadDemo = async () => {
-    setError(null); setAddr(DEMO); setEns("vitalik.eth");
-    loadPortfolio([DEMO.toLowerCase()]);
-    if (HAS_KEY) { run(DEMO); return; }
-    setIsMock(true); setData(mockOverview());
-  };
-
-  const run = async (value: string) => {
-    setIsMock(false); setError(null);
-    const addrs = await parseInputs(value);
-    if (!addrs.length) { setError("Adj meg legalább egy érvényes ETH-címet vagy ENS-nevet (0x… / …​.eth)."); return; }
-    setLoading(true); setData(null);
-    loadPortfolio(addrs);
-    try {
-      setData(await buildOverview(addrs[0])); // aktivitás/gas az első címre
-    } catch (e) {
-      if (!HAS_KEY) { setIsMock(true); setData(mockOverview()); }
-      else setError((e as Error).message || "Hiba a lekérdezésnél.");
-    } finally {
-      setLoading(false);
+  const loadDemo = () => {
+    setError(null);
+    let cur = wallets;
+    for (const [a, l] of [[DEMO, "Vitalik (EVM)"], [DEMO_SOL, "Demo Solana"], [DEMO_BTC, "Demo Bitcoin"]] as [string, string][]) {
+      const { list } = addWallet(cur, a, l);
+      cur = list;
     }
+    setWallets(cur); setEns(null);
   };
 
   const toggleChain = (id: string) =>
@@ -112,22 +131,21 @@ export default function App() {
           </div>
 
           <form
-            onSubmit={(e) => { e.preventDefault(); run(addr); }}
+            onSubmit={(e) => { e.preventDefault(); run(); }}
             className="mt-5 flex gap-2 flex-col sm:flex-row"
           >
             <input
               value={addr}
               onChange={(e) => setAddr(e.target.value)}
-              placeholder="ETH-cím(ek) vagy ENS: 0x… , vitalik.eth (több is, vesszővel)"
+              placeholder="Tárca hozzáadása: ETH 0x… / SOL base58 / BTC bc1… / ENS (több is, vesszővel)"
               spellCheck={false}
               className="flex-1 glass rounded-xl px-4 py-3 text-sm outline-none focus:border-cyan/50 placeholder:text-slate-500"
             />
             <button
               type="submit"
-              disabled={loading}
-              className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-soft to-cyan text-ink font-semibold text-sm disabled:opacity-50 hover:brightness-110 transition"
+              className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-soft to-cyan text-ink font-semibold text-sm hover:brightness-110 transition"
             >
-              {loading ? "Elemzés…" : "Áttekintés"}
+              Hozzáad
             </button>
             <button
               type="button"
@@ -165,19 +183,24 @@ export default function App() {
           )}
         </header>
 
-        {loading && (
-          <div className="text-center text-slate-400 py-20 animate-pulse">
-            Tranzakciók és akkori árfolyamok betöltése…
-          </div>
-        )}
+        {/* Figyelt tárcák — mindig látható, perzisztens */}
+        <Watchlist
+          wallets={wallets}
+          perWalletUsd={pf?.perWalletUsd}
+          hufFactor={pf?.usdHufFactor ?? 372}
+          currency={primary}
+          onAdd={addToWatchlist}
+          onRemove={(id) => setWallets((w) => removeWallet(w, id))}
+          onRename={(id, label) => setWallets((w) => renameWallet(w, id, label))}
+        />
 
-        {(data || pf || pLoading) && !loading && (
+        {(data || pf || pLoading) && (
           <Result data={data} pf={pf} pLoading={pLoading} ens={ens} primary={primary} />
         )}
 
-        {!data && !pf && !pLoading && !loading && !error && (
-          <div className="text-center text-slate-500 py-24 text-sm">
-            Írj be egy vagy több ETH-címet / ENS-nevet, vagy nyomd meg a <span className="text-cyan-soft">Demó</span> gombot.
+        {!wallets.length && !pLoading && (
+          <div className="text-center text-slate-500 py-16 text-sm">
+            Adj hozzá tárcákat (ETH/SOL/BTC) vagy nyomd meg a <span className="text-cyan-soft">Demó</span> gombot — mind egy közös portfólióban, valós árfolyamon.
           </div>
         )}
 

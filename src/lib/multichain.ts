@@ -56,12 +56,22 @@ export interface Portfolio {
   addresses: string[]; chains: string[];
   totalUsd: number; totalHuf: number; assetCount: number; dustFiltered: number;
   usdHufFactor: number; perChainUsd: Record<string, number>;
+  perWalletUsd?: Record<string, number>; // cím → verified USD (per-tárca bontás)
   pricingMode: "coingecko" | "allowlist"; // hogyan ellenőriztük az árat
   assets: Asset[];           // VERIFIED — ezek adják a headline totált
   unverifiedAssets: Asset[]; // nem ellenőrzött árú tokenek (NEM a totálban)
   nfts: Nft[]; nftCount: number;
   chainErrors: string[];
 }
+
+// Lánc-meta lookup (EVM + SOL + BTC) a UI-badge-ekhez / allokáció-sávhoz.
+export const CHAIN_META: Record<string, { name: string; color: string }> = {
+  ...Object.fromEntries(CHAINS.map((c) => [c.id, { name: c.name, color: c.color }])),
+  sol: { name: "Solana", color: "#14f195" },
+  btc: { name: "Bitcoin", color: "#f7931a" },
+};
+
+export async function sharedUsdHuf(): Promise<number> { return usdHuf(); }
 
 async function jget(url: string, ms = 15000): Promise<any> {
   const ctrl = new AbortController();

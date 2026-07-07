@@ -1,6 +1,6 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { motion } from "framer-motion";
-import { Portfolio, CHAINS } from "../lib/multichain";
+import { Portfolio, CHAIN_META } from "../lib/multichain";
 import { fmtUsd, fmtHuf } from "../lib/format";
 
 const COLORS = ["#22d3ee", "#67e8f9", "#38bdf8", "#818cf8", "#a78bfa", "#c084fc", "#5eead4", "#94a3b8"];
@@ -15,7 +15,7 @@ export function PortfolioPanel({ p, currency }: { p: Portfolio; currency: "usd" 
   const pie = [...top.map((a) => ({ name: a.symbol, value: val(a) })), ...(restVal > 0 ? [{ name: "Egyéb", value: restVal }] : [])];
 
   const chainRows = Object.entries(p.perChainUsd).sort((a, b) => b[1] - a[1]);
-  const chainMeta = (id: string) => CHAINS.find((c) => c.id === id);
+  const chainMeta = (id: string) => CHAIN_META[id] || { name: id, color: "#64748b" };
 
   return (
     <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-2xl p-5 mb-6">

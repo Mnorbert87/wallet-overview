@@ -57,5 +57,6 @@ export function mockOverview(): Overview {
       { address: "0x00000000006c3852cbef3e08e8df289169ede581", count: 14 }, // Seaport
       { address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", count: 9 }, // USDC
     ],
+    priceDegraded: false,
   };
 }

@@ -1,5 +1,5 @@
 import { getNormalTxs, getTokenTxs, EthTx, TokenTx } from "./etherscan";
-import { ethPriceMap, ethSpot, priceAt, PriceMap } from "./price";
+import { ethPriceMap, ethSpot, priceAt, PriceMap, priceDataDegraded } from "./price";
 
 const WEI = 1e18;
 
@@ -35,6 +35,7 @@ export interface Overview {
   txRows: TxRow[];       // egyesített, idő szerint csökkenő
   tokenSymbols: string[];
   counterparties: { address: string; count: number }[]; // top interakciós címek
+  priceDegraded: boolean; // #6: az ársor hiányos/vágott → USD/HUF becslés megbízhatatlan
 }
 
 export async function buildOverview(address: string): Promise<Overview> {
@@ -125,5 +126,6 @@ export async function buildOverview(address: string): Promise<Overview> {
       .map(([address, count]) => ({ address, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 6),
+    priceDegraded: priceDataDegraded(), // #6: az ársor hiányos volt?
   };
 }

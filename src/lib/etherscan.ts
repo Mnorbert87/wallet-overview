@@ -30,24 +30,60 @@ export interface TokenTx {
   isOutgoing: boolean;
 }
 
+// Etherscan lapozás: offset a maximum 10000/lap, page-gel lépdelünk.
+// A gas-total és a cashflow a TELJES historiát igényli → végig kell lapozni,
+// különben 10k tx felett elavul (audit #6). MAX_PAGES a biztonsági plafon
+// (200k tx), a lapok közti szünet a free-tier rate limitet (~5 req/s) tartja.
+const PAGE_SIZE = 10000;
+const MAX_PAGES = 20;
+const PAGE_DELAY_MS = 250;
+
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+// #8/#9: retry+backoff — r.ok/r.status ellenőrzés; 429/5xx és "rate limit" üzenet
+// RETRY-elhető (nem hard throw). Egy tranziens 429 ne dobja el az egész overview-t.
 async function call(params: Record<string, string>): Promise<any> {
   const q = new URLSearchParams({ chainid: "1", apikey: KEY, ...params });
-  const r = await fetch(`${BASE}?${q}`);
-  const j = await r.json();
-  // status "0" + "No transactions found" nem hiba — üres lista.
-  if (j.status === "0" && !Array.isArray(j.result)) {
-    if (typeof j.result === "string" && /no transactions|no records/i.test(j.result)) return [];
-    throw new Error(j.result || j.message || "Etherscan hiba");
+  let lastErr: unknown;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(`${BASE}?${q}`);
+      if (!r.ok) {
+        if (r.status === 429 || r.status >= 500) { lastErr = new Error(`Etherscan ${r.status}`); await sleep(500 * (i + 1)); continue; }
+        throw new Error(`Etherscan ${r.status}`);
+      }
+      const j = await r.json();
+      if (j.status === "0" && !Array.isArray(j.result)) {
+        if (typeof j.result === "string" && /no transactions|no records/i.test(j.result)) return [];
+        if (typeof j.result === "string" && /rate limit|max .*limit/i.test(j.result)) { lastErr = new Error(j.result); await sleep(500 * (i + 1)); continue; }
+        throw new Error(j.result || j.message || "Etherscan hiba");
+      }
+      return Array.isArray(j.result) ? j.result : [];
+    } catch (e) { lastErr = e; if (i < 2) await sleep(500 * (i + 1)); }
   }
-  return Array.isArray(j.result) ? j.result : [];
+  throw lastErr;
 }
 
-export async function getNormalTxs(addr: string): Promise<EthTx[]> {
-  const a = addr.toLowerCase();
-  const rows = await call({
-    module: "account", action: "txlist", address: addr,
-    startblock: "0", endblock: "99999999", sort: "asc", page: "1", offset: "10000",
-  });
+// Végiglapozza az ÖSSZES sort (asc) — aggregációhoz (gas, cashflow, hó-bontás).
+// #8: terminal hiba egy lapon → visszaadjuk az EDDIG felgyűlt sorokat (partial),
+// nem dobjuk el az egész history-t egyetlen kései 429 miatt.
+async function callAll(params: Record<string, string>): Promise<any[]> {
+  const out: any[] = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    let rows: any[];
+    try {
+      rows = await call({ ...params, sort: "asc", page: String(page), offset: String(PAGE_SIZE) });
+    } catch {
+      break; // partial-return: ami eddig megvan, azt visszaadjuk
+    }
+    out.push(...rows);
+    if (rows.length < PAGE_SIZE) break; // ez volt az utolsó lap
+    if (page < MAX_PAGES) await sleep(PAGE_DELAY_MS);
+  }
+  return out;
+}
+
+function mapNormal(rows: any[], a: string): EthTx[] {
   return rows.map((t: any): EthTx => ({
     hash: t.hash,
     timeStamp: Number(t.timeStamp),
@@ -61,12 +97,7 @@ export async function getNormalTxs(addr: string): Promise<EthTx[]> {
   }));
 }
 
-export async function getTokenTxs(addr: string): Promise<TokenTx[]> {
-  const a = addr.toLowerCase();
-  const rows = await call({
-    module: "account", action: "tokentx", address: addr,
-    startblock: "0", endblock: "99999999", sort: "asc", page: "1", offset: "10000",
-  });
+function mapToken(rows: any[], a: string): TokenTx[] {
   return rows.map((t: any): TokenTx => {
     const dec = Number(t.tokenDecimal || "18");
     return {
@@ -82,4 +113,35 @@ export async function getTokenTxs(addr: string): Promise<TokenTx[]> {
       isOutgoing: (t.from || "").toLowerCase() === a,
     };
   });
+}
+
+export async function getNormalTxs(addr: string): Promise<EthTx[]> {
+  const a = addr.toLowerCase();
+  const rows = await callAll({
+    module: "account", action: "txlist", address: addr,
+    startblock: "0", endblock: "99999999",
+  });
+  return mapNormal(rows, a);
+}
+
+export async function getTokenTxs(addr: string): Promise<TokenTx[]> {
+  const a = addr.toLowerCase();
+  const rows = await callAll({
+    module: "account", action: "tokentx", address: addr,
+    startblock: "0", endblock: "99999999",
+  });
+  return mapToken(rows, a);
+}
+
+// Csak a legfrissebb N native tx — egy desc-lekérés, lapozás nélkül.
+// Ha egy nézetnek csak a legutóbbi tx-ek kellenek (recent-tx tábla), ez
+// olcsóbb mint a teljes callAll aggregáció újbóli végigfuttatása.
+export async function getRecentTxs(addr: string, limit = 25): Promise<EthTx[]> {
+  const a = addr.toLowerCase();
+  const rows = await call({
+    module: "account", action: "txlist", address: addr,
+    startblock: "0", endblock: "99999999", sort: "desc",
+    page: "1", offset: String(Math.min(limit, PAGE_SIZE)),
+  });
+  return mapNormal(rows, a);
 }

@@ -2,17 +2,26 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { motion } from "framer-motion";
 import { Portfolio, CHAIN_META } from "../lib/multichain";
 import { fmtUsd, fmtHuf } from "../lib/format";
+import { useT } from "../lib/i18n";
 
 const COLORS = ["#22d3ee", "#67e8f9", "#38bdf8", "#818cf8", "#a78bfa", "#c084fc", "#5eead4", "#94a3b8"];
 
 export function PortfolioPanel({ p, currency }: { p: Portfolio; currency: "usd" | "huf" }) {
+  const t = useT();
   const fmt = currency === "usd" ? fmtUsd : fmtHuf;
   const total = currency === "usd" ? p.totalUsd : p.totalHuf;
   const val = (a: { valueUsd: number; valueHuf: number }) => (currency === "usd" ? a.valueUsd : a.valueHuf);
 
-  const top = p.assets.slice(0, 7);
-  const restVal = p.assets.slice(7).reduce((s, a) => s + val(a), 0);
-  const pie = [...top.map((a) => ({ name: a.symbol, value: val(a) })), ...(restVal > 0 ? [{ name: "Egyéb", value: restVal }] : [])];
+  // A pie/allokáció CSAK a verified (totálban lévő) eszközökből — hogy egyezzen a headline-nel.
+  const verifiedAssets = p.assets.filter((a) => a.verified);
+  const top = verifiedAssets.slice(0, 7);
+  const restVal = verifiedAssets.slice(7).reduce((s, a) => s + val(a), 0);
+  const pie = [...top.map((a) => ({ name: a.symbol, value: val(a) })), ...(restVal > 0 ? [{ name: t("pf.other"), value: restVal }] : [])];
+  const unverifiedList = p.assets.filter((a) => !a.verified);
+  const unverifiedInList = unverifiedList.length;
+  // #13299/2: a kihagyott (nem-verifikált árú) eszközök best-effort összértéke —
+  // ez NINCS a totálban; keyless módban CG-kulccsal árazódna. Prominensen jelezzük.
+  const uncoveredVal = unverifiedList.reduce((s, a) => s + val(a), 0);
 
   const chainRows = Object.entries(p.perChainUsd).sort((a, b) => b[1] - a[1]);
   const chainMeta = (id: string) => CHAIN_META[id] || { name: id, color: "#64748b" };
@@ -21,15 +30,14 @@ export function PortfolioPanel({ p, currency }: { p: Portfolio; currency: "usd" 
     <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-2xl p-5 mb-6">
       <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
         <div>
-          <h3 className="text-sm font-semibold text-slate-200">Portfólió — {p.assetCount} ellenőrzött eszköz, {p.chains.length} lánc</h3>
+          <h3 className="text-sm font-semibold text-slate-200">{t("pf.title", { n: p.assetCount, c: p.chains.length })}</h3>
           <p className="text-xs text-slate-500 mt-0.5">
             <span className="text-slate-600">
-              ár-forrás: {p.pricingMode === "coingecko" ? "CoinGecko (teljes)" : "curated allowlist (keyless)"}
-              {p.dustFiltered > 0 && ` · ${p.dustFiltered} dust szűrve`}
-              {p.unverifiedAssets.length > 0 && ` · ${p.unverifiedAssets.length} nem ellenőrzött árú (nincs a totálban)`}
+              {t("pf.priceSrc")}: {p.pricingMode === "coingecko" ? t("pf.src.coingecko") : t("pf.src.allowlist")}
+              {p.dustFiltered > 0 && ` · ${t("pf.dustFiltered", { n: p.dustFiltered })}`}
               {" · "}
             </span>
-            {p.chainErrors.length > 0 && <span className="text-amber-400/70">{p.chainErrors.join(", ")} lánc most nem elérhető</span>}
+            {p.chainErrors.length > 0 && <span className="text-amber-400/70">{t("pf.chainDown", { c: p.chainErrors.join(", ") })}</span>}
           </p>
         </div>
       </div>
@@ -60,41 +68,44 @@ export function PortfolioPanel({ p, currency }: { p: Portfolio; currency: "usd" 
             </PieChart>
           </ResponsiveContainer>
         </div>
-        <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+        <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+          {p.assets.length === 0 && (
+            <div className="text-sm text-slate-500 py-6 text-center">{t("pf.emptyList")}</div>
+          )}
           {p.assets.map((a, i) => (
             <div key={a.chain + a.contract + i} className="flex items-center justify-between text-sm py-1">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: COLORS[Math.min(i, 7) % COLORS.length] }} />
+                <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: a.verified ? COLORS[Math.min(i, 7) % COLORS.length] : "#475569" }} />
                 <span className="text-slate-200 font-medium">{a.symbol}</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ background: `${a.chainColor}22`, color: a.chainColor }}>{a.chainName}</span>
+                {!a.verified && <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0 bg-amber-400/10 text-amber-400/80" title={t("pf.priceUnverifiedTip")}>{t("pf.priceUnverified")}</span>}
                 <span className="text-slate-500 text-xs truncate">{a.amount.toLocaleString("en-US", { maximumFractionDigits: 4 })}</span>
               </div>
               <div className="text-right shrink-0">
-                <div className="text-slate-200">{fmt(val(a))}</div>
-                <div className="text-[11px] text-slate-500">{a.allocationPct.toFixed(1)}%</div>
+                {/* #13299/3: nem-verifikált (esetleg scam-árú) tokennél NEM írunk ki
+                    konkrét dollárértéket — csak "≈ ?" jelzést, hogy a hamis ár ne
+                    tűnjön valósnak. A verifikáltak mutatják a valós értéket. */}
+                <div className={a.verified ? "text-slate-200" : "text-slate-500"} title={a.verified ? undefined : t("pf.priceUnverifiedTip")}>
+                  {a.verified ? fmt(val(a)) : "≈ ?"}
+                </div>
+                <div className="text-[11px] text-slate-500">{a.verified ? `${a.allocationPct.toFixed(1)}%` : ""}</div>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Nem ellenőrzött árú tokenek — láthatók, de NINCSENEK a totálban (a
-          Blockscout-ár spam-tokeneknél hamis lehet; itt csak a mennyiség biztos). */}
-      {p.unverifiedAssets.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-white/5">
-          <p className="text-xs text-slate-500 mb-2">
-            Nem ellenőrzött árú tokenek ({p.unverifiedAssets.length}) — a mennyiség valós, de az árat nem
-            tudtuk megbízhatóan igazolni, ezért NEM számoltuk a portfólió-értékbe.
-            {p.pricingMode === "allowlist" && " (Saját ingyenes CoinGecko-kulccsal ezek is árazódnak.)"}
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {p.unverifiedAssets.slice(0, 24).map((a, i) => (
-              <span key={a.chain + a.contract + i} className="text-[11px] px-2 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400">
-                {a.symbol} <span className="text-slate-600">{a.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
-              </span>
-            ))}
-          </div>
+      {unverifiedInList > 0 && p.pricingMode === "allowlist" && (
+        <div className="mt-3 pt-3 border-t border-white/5 text-[11px] text-amber-400/90 leading-relaxed">
+          {t("pf.coverage", { covered: verifiedAssets.length, total: p.assets.length, uncovered: fmt(uncoveredVal) })}
+          {" "}{t("pf.cgHint")}
         </div>
+      )}
+      {(unverifiedInList > 0 || p.suspiciousFiltered > 0) && (
+        <p className="text-[11px] text-slate-500 mt-2">
+          {unverifiedInList > 0 && p.pricingMode === "coingecko" && <>{t("pf.unverifiedNote", { n: unverifiedInList })} </>}
+          {p.suspiciousFiltered > 0 && <span className="text-amber-400/60">{t("pf.suspicious", { n: p.suspiciousFiltered })} </span>}
+        </p>
       )}
     </motion.div>
   );

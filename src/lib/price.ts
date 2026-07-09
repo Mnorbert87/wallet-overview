@@ -13,26 +13,53 @@ function dayKey(unixSec: number): string {
   return new Date(unixSec * 1000).toISOString().slice(0, 10);
 }
 
+// Free-tier (kulcs nélküli) market_chart max ~365 nap; efölött 4xx. Kulccsal tágabb.
+// Az `interval` paramétert szándékosan NEM küldjük — a CG auto-granularitása 90+ napra
+// úgyis napi bontást ad, viszont kulcs nélkül a `interval=daily` 4xx-et dob.
+const KEYLESS_MAX_DAYS = 365;
+
+// Degradáció-jelző: ha az ársor-lekérés (részben) elbukott, a hívó ebből tudja,
+// hogy az árak hiányosak lehetnek — DE a valós on-chain adat így is renderelhető
+// (nincs néma mock-fallback).
+let _lastDegraded = false;
+
+/** true, ha a legutóbbi ethPriceMap()-hívás nem tudta a teljes ársort lekérni. */
+export function priceDataDegraded(): boolean {
+  return _lastDegraded;
+}
+
+// Egy pénznem napi ársora. Hiba esetén NEM dob — üres sort ad vissza és jelzi a bukást.
 async function series(vs: string, days: number): Promise<Record<string, number>> {
-  const q = new URLSearchParams({ vs_currency: vs, days: String(days), interval: "daily" });
+  const q = new URLSearchParams({ vs_currency: vs, days: String(days) });
   const headers: Record<string, string> = {};
   if (KEY) headers["x-cg-demo-api-key"] = KEY;
-  const r = await fetch(`${CG}/coins/ethereum/market_chart?${q}`, { headers });
-  if (!r.ok) throw new Error(`CoinGecko ${r.status} (${vs})`);
-  const j = await r.json();
   const out: Record<string, number> = {};
-  for (const [ms, price] of j.prices as [number, number][]) {
-    out[new Date(ms).toISOString().slice(0, 10)] = price;
+  try {
+    const r = await fetch(`${CG}/coins/ethereum/market_chart?${q}`, { headers });
+    if (!r.ok) {
+      _lastDegraded = true;
+      return out;
+    }
+    const j = await r.json();
+    for (const [ms, price] of j.prices as [number, number][]) {
+      out[new Date(ms).toISOString().slice(0, 10)] = price;
+    }
+  } catch {
+    _lastDegraded = true;
   }
   return out;
 }
 
-/** ETH USD+HUF napi ársor a legelső tx-től máig. */
+/** ETH USD+HUF napi ársor a legelső tx-től máig. Hiba esetén részleges/üres map
+ *  (priceDataDegraded()===true), nem dob — így a hívó a valós lánc-adatot renderelheti. */
 export async function ethPriceMap(firstTxSec: number): Promise<PriceMap> {
-  const spanDays = Math.min(
-    3650,
-    Math.max(2, Math.ceil((Date.now() / 1000 - firstTxSec) / 86400) + 1),
-  );
+  _lastDegraded = false;
+  const maxDays = KEY ? 3650 : KEYLESS_MAX_DAYS;
+  const wantDays = Math.max(2, Math.ceil((Date.now() / 1000 - firstTxSec) / 86400) + 1);
+  const spanDays = Math.min(maxDays, wantDays);
+  // #5: ha a tárca-history hosszabb mint amennyi ársort le tudunk kérni (keyless
+  // 365 nap), a 365 napnál régebbi tx-ek az ~1 éve árán értékelődnek → degradált.
+  if (wantDays > maxDays) _lastDegraded = true;
   const [usd, huf] = await Promise.all([series("usd", spanDays), series("huf", spanDays)]);
   const map: PriceMap = {};
   for (const d of Object.keys(usd)) map[d] = { usd: usd[d], huf: huf[d] ?? 0 };

@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { TxRow } from "../lib/compute";
 import { fmtUsd, fmtHuf, fmtDate } from "../lib/format";
+import { useT } from "../lib/i18n";
 
 export function TxTable({ rows, currency }: { rows: TxRow[]; currency: "usd" | "huf" }) {
+  const t = useT();
   const [filter, setFilter] = useState<"all" | "in" | "out" | "eth">("all");
   const fmt = currency === "usd" ? fmtUsd : fmtHuf;
   const val = (r: TxRow) => (currency === "usd" ? r.usd : r.huf);
@@ -15,6 +17,7 @@ export function TxTable({ rows, currency }: { rows: TxRow[]; currency: "usd" | "
   const Btn = ({ k, label }: { k: typeof filter; label: string }) => (
     <button
       onClick={() => setFilter(k)}
+      aria-pressed={filter === k}
       className={`px-3 py-1 rounded-lg text-xs transition-colors ${
         filter === k ? "bg-cyan/20 text-cyan-soft border border-cyan/40" : "text-slate-400 hover:text-slate-200 border border-transparent"
       }`}
@@ -26,20 +29,20 @@ export function TxTable({ rows, currency }: { rows: TxRow[]; currency: "usd" | "
   return (
     <div className="glass rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-        <h3 className="text-sm font-semibold text-slate-200">Tranzakciók</h3>
+        <h3 className="text-sm font-semibold text-slate-200">{t("tx.title")}</h3>
         <div className="flex gap-1">
-          <Btn k="all" label="Mind" /><Btn k="in" label="Be" /><Btn k="out" label="Ki" /><Btn k="eth" label="ETH" />
+          <Btn k="all" label={t("tx.all")} /><Btn k="in" label={t("tx.in")} /><Btn k="out" label={t("tx.out")} /><Btn k="eth" label="ETH" />
         </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b border-white/5">
-              <th className="py-2 pr-3 font-medium">Dátum</th>
-              <th className="py-2 pr-3 font-medium">Irány</th>
-              <th className="py-2 pr-3 font-medium">Eszköz</th>
-              <th className="py-2 pr-3 font-medium text-right">Mennyiség</th>
-              <th className="py-2 pr-3 font-medium text-right">Érték</th>
+              <th className="py-2 pr-3 font-medium">{t("tx.date")}</th>
+              <th className="py-2 pr-3 font-medium">{t("tx.direction")}</th>
+              <th className="py-2 pr-3 font-medium">{t("tx.asset")}</th>
+              <th className="py-2 pr-3 font-medium text-right">{t("tx.amount")}</th>
+              <th className="py-2 pr-3 font-medium text-right">{t("tx.value")}</th>
               <th className="py-2 font-medium text-right">Gas</th>
             </tr>
           </thead>
@@ -49,16 +52,21 @@ export function TxTable({ rows, currency }: { rows: TxRow[]; currency: "usd" | "
                 <td className="py-2 pr-3 text-slate-400 whitespace-nowrap">{fmtDate(r.timeStamp)}</td>
                 <td className="py-2 pr-3">
                   <span className={r.direction === "in" ? "text-cyan-soft" : "text-slate-400"}>
-                    {r.direction === "in" ? "↓ be" : "↑ ki"}
+                    {r.direction === "in" ? t("tx.dirIn") : t("tx.dirOut")}
                   </span>
-                  {r.failed && <span className="ml-1 text-red-400 text-xs">hibás</span>}
+                  {r.failed && <span className="ml-1 text-red-400 text-xs">{t("tx.failed")}</span>}
                 </td>
                 <td className="py-2 pr-3 text-slate-200">{r.kind}</td>
                 <td className="py-2 pr-3 text-right text-slate-300 whitespace-nowrap">
                   {r.amount.toLocaleString("en-US", { maximumFractionDigits: 4 })}
                 </td>
                 <td className="py-2 pr-3 text-right text-slate-200 whitespace-nowrap">
-                  {r.kind === "ETH" && val(r) > 0 ? fmt(val(r)) : <span className="text-slate-600">—</span>}
+                  {/* #30: valós transzfer ár nélkül = "n/a" (title), nem "—" (üres) */}
+                  {r.kind === "ETH" && val(r) > 0
+                    ? fmt(val(r))
+                    : r.kind === "ETH" && r.amount > 0
+                      ? <span className="text-slate-600" title={t("tx.priceUnavail")}>n/a</span>
+                      : <span className="text-slate-600">—</span>}
                 </td>
                 <td className="py-2 text-right text-slate-500 whitespace-nowrap">
                   {gas(r) > 0 ? fmt(gas(r)) : ""}
@@ -69,7 +77,7 @@ export function TxTable({ rows, currency }: { rows: TxRow[]; currency: "usd" | "
         </table>
       </div>
       {shown.length > 60 && (
-        <p className="text-xs text-slate-500 mt-3 text-center">Az első 60 sor látszik ({shown.length} összesen).</p>
+        <p className="text-xs text-slate-500 mt-3 text-center">{t("tx.truncated", { n: shown.length })}</p>
       )}
     </div>
   );

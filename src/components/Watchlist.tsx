@@ -2,6 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Wallet } from "../lib/wallets";
 import { shortAddr, fmtUsd, fmtHuf } from "../lib/format";
+import { useT } from "../lib/i18n";
 
 const TYPE_META: Record<string, { label: string; color: string }> = {
   evm: { label: "EVM", color: "#627eea" },
@@ -20,6 +21,7 @@ export function Watchlist({
   onRemove: (id: string) => void;
   onRename: (id: string, label: string) => void;
 }) {
+  const tr = useT();
   const [addr, setAddr] = useState("");
   const [label, setLabel] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -35,23 +37,25 @@ export function Watchlist({
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-2xl p-5 mb-6">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-slate-200">Figyelt tárcák ({wallets.length})</h3>
-        <span className="text-[11px] text-slate-500">watch-only · perzisztens (localStorage)</span>
+        <h3 className="text-sm font-semibold text-slate-200">{tr("wl.title")} ({wallets.length})</h3>
+        <span className="text-[11px] text-slate-500">{tr("wl.sub")}</span>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2 mb-3 no-print">
-        <input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="Cím: 0x… / SOL base58 / bc1…"
+        <input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder={tr("wl.addrPlaceholder")}
+          aria-label={tr("wl.addrPlaceholder")}
           spellCheck={false} className="flex-1 glass rounded-xl px-3 py-2 text-sm outline-none focus:border-cyan/50 placeholder:text-slate-600" />
-        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Címke (pl. Fő tárca)"
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={tr("wl.labelPlaceholder")}
+          aria-label={tr("wl.labelPlaceholder")}
           className="sm:w-44 glass rounded-xl px-3 py-2 text-sm outline-none focus:border-cyan/50 placeholder:text-slate-600" />
         <button onClick={submit} className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-soft to-cyan text-ink font-semibold text-sm hover:brightness-110 transition">
-          Hozzáad
+          {tr("btn.add")}
         </button>
       </div>
       {err && <p className="text-xs text-red-400 mb-2">{err}</p>}
 
       {wallets.length === 0 ? (
-        <p className="text-xs text-slate-500">Adj hozzá egy vagy több címet (ETH/SOL/BTC) — mind egy közös portfólióban látszik, valós árfolyamon.</p>
+        <p className="text-xs text-slate-500">{tr("wl.empty")}</p>
       ) : (
         <div className="space-y-1.5">
           {wallets.map((w) => {
@@ -68,7 +72,7 @@ export function Watchlist({
                       className="bg-transparent border-b border-cyan/40 text-slate-100 text-sm outline-none w-32" />
                   ) : (
                     <button onClick={() => { setEditing(w.id); setEditVal(w.label); }}
-                      className="text-slate-200 font-medium hover:text-cyan-soft transition-colors truncate no-print" title="Átnevezés">
+                      className="text-slate-200 font-medium hover:text-cyan-soft transition-colors truncate no-print" title={tr("wl.rename")}>
                       {w.label}
                     </button>
                   )}
@@ -78,7 +82,7 @@ export function Watchlist({
                   {usd !== undefined && (
                     <span className="text-slate-300">{currency === "usd" ? fmtUsd(usd) : fmtHuf(usd * hufFactor)}</span>
                   )}
-                  <button onClick={() => onRemove(w.id)} className="text-slate-600 hover:text-red-400 transition-colors text-xs no-print" title="Törlés">✕</button>
+                  <button onClick={() => onRemove(w.id)} aria-label={tr("wl.remove")} className="text-slate-600 hover:text-red-400 transition-colors text-xs no-print" title={tr("wl.remove")}>✕</button>
                 </div>
               </div>
             );

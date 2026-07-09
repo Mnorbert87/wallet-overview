@@ -3,8 +3,10 @@ import {
 } from "recharts";
 import { MonthFlow } from "../lib/compute";
 import { monthLabel, fmtUsd, fmtHuf } from "../lib/format";
+import { useT } from "../lib/i18n";
 
 export function CashflowChart({ data, currency }: { data: MonthFlow[]; currency: "usd" | "huf" }) {
+  const t = useT();
   const rows = data.map((m) => ({
     ym: monthLabel(m.ym),
     be: currency === "usd" ? m.inUsd : m.inHuf,
@@ -13,7 +15,7 @@ export function CashflowChart({ data, currency }: { data: MonthFlow[]; currency:
   const fmt = currency === "usd" ? fmtUsd : fmtHuf;
 
   if (!rows.length) {
-    return <div className="text-slate-500 text-sm py-10 text-center">Nincs native ETH cashflow ehhez a tárcához.</div>;
+    return <div className="text-slate-500 text-sm py-10 text-center">{t("cf.empty")}</div>;
   }
 
   return (
@@ -25,7 +27,7 @@ export function CashflowChart({ data, currency }: { data: MonthFlow[]; currency:
           tickFormatter={(v) => fmt(Math.abs(v)).replace(/\s?(Ft|\$)/, "")} width={54} />
         <Tooltip
           contentStyle={{ background: "#0d1428", border: "1px solid rgba(103,232,249,0.25)", borderRadius: 12, color: "#e8eefc" }}
-          formatter={(v: number, n) => [fmt(Math.abs(v)), n === "be" ? "Beérkezett" : "Kiment"]}
+          formatter={(v: number, n) => [fmt(Math.abs(v)), n === "be" ? t("cf.received") : t("cf.sent")]}
           cursor={{ fill: "rgba(34,211,238,0.06)" }}
         />
         <Bar dataKey="be" fill="#22d3ee" radius={[3, 3, 0, 0]} maxBarSize={26} />

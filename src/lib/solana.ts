@@ -6,6 +6,9 @@ import { Asset } from "./multichain";
 
 const RPC = "https://api.mainnet-beta.solana.com";
 const SPL_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+// Token-2022 (SPL Token Extensions) — külön program-id. Best-effort: ha a public
+// RPC nem támogatja / hibázik, üresként kezeljük, a legacy SPL nem törik.
+const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 const CG = "https://api.coingecko.com/api/v3";
 const CHAIN_COLOR = "#14f195";
 
@@ -25,14 +28,26 @@ const SPL_ALLOW: Record<string, { symbol: string; cg: string }> = {
 };
 
 async function rpc(method: string, params: any[]): Promise<any> {
-  const r = await fetch(RPC, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
-  if (!r.ok) throw new Error(`Solana RPC ${r.status}`);
-  const j = await r.json();
-  if (j.error) throw new Error(j.error.message || "Solana RPC error");
-  return j.result;
+  // #10/#26: retry+backoff — egy tranziens 429/5xx ne dobja el a hívást.
+  let lastErr: unknown;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(RPC, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      });
+      if (!r.ok) {
+        if (r.status === 429 || r.status >= 500) { lastErr = new Error(`Solana RPC ${r.status}`); }
+        else throw new Error(`Solana RPC ${r.status}`);
+      } else {
+        const j = await r.json();
+        if (j.error) throw new Error(j.error.message || "Solana RPC error");
+        return j.result;
+      }
+    } catch (e) { lastErr = e; }
+    if (i < 2) await new Promise((res) => setTimeout(res, 400 * (i + 1)));
+  }
+  throw lastErr;
 }
 
 async function cgPrices(ids: string[]): Promise<Record<string, { usd: number }>> {
@@ -45,15 +60,18 @@ async function cgPrices(ids: string[]): Promise<Record<string, { usd: number }>>
 
 export async function fetchSolana(addr: string, factor: number): Promise<{ assets: Asset[]; error?: boolean }> {
   try {
-    const [bal, toks] = await Promise.all([
+    // #10: getBalance dönti el a lánc-hibát; az SPL-hívások IZOLÁLTAK (.catch) —
+    // ha az SPL 429-el de a getBalance sikerült, a SOL-egyenleg NEM vész el.
+    const [bal, toks, toks2022] = await Promise.all([
       rpc("getBalance", [addr]),
-      rpc("getTokenAccountsByOwner", [addr, { programId: SPL_PROGRAM }, { encoding: "jsonParsed" }]),
+      rpc("getTokenAccountsByOwner", [addr, { programId: SPL_PROGRAM }, { encoding: "jsonParsed" }]).catch(() => null),
+      rpc("getTokenAccountsByOwner", [addr, { programId: TOKEN_2022_PROGRAM }, { encoding: "jsonParsed" }]).catch(() => null),
     ]);
     const solAmt = (bal?.value ?? 0) / 1e9;
 
-    // begyűjtjük a mint→amount-ot (több account is lehet egy mintre)
+    // begyűjtjük a mint→amount-ot (több account is lehet egy mintre, legacy + Token-2022)
     const byMint = new Map<string, number>();
-    for (const a of toks?.value || []) {
+    for (const a of [...(toks?.value || []), ...(toks2022?.value || [])]) {
       const info = a.account?.data?.parsed?.info;
       const mint = info?.mint;
       const ui = info?.tokenAmount?.uiAmount || 0;
@@ -69,7 +87,10 @@ export async function fetchSolana(addr: string, factor: number): Promise<{ asset
       symbol, name, contract, chain: "sol", chainName: "Solana", chainColor: CHAIN_COLOR,
       amount, priceUsd: price, valueUsd: amount * price, valueHuf: amount * price * factor, allocationPct: 0, verified,
     });
-    if (solAmt * solUsd >= 0.01) assets.push(mk("SOL", "Solana", "native", solAmt, solUsd, true));
+    // A native SOL MINDIG látszik, ha van egyenleg (amount>0). Ha az ár nem elérhető
+    // (CG rate-limit → solUsd=0), best-effort: mennyiség látszik, ár 0, verified=false →
+    // "ár nem elérhető" jelzéssel a listában, de NEM a totálban (nincs hamis 0-ra ejtés).
+    if (solAmt > 0) assets.push(mk("SOL", "Solana", "native", solAmt, solUsd, solUsd > 0));
     for (const [mint, amt] of byMint) {
       const meta = SPL_ALLOW[mint];
       if (meta) {

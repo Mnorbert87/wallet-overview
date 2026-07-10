@@ -37,13 +37,41 @@ tölt (a teljes UI + számítás látszik). Élő lánc-adathoz egy ingyenes kul
 - Szűrhető tranzakció-tábla (mind/be/ki/ETH), gas oszloppal.
 - Érintett tokenek (az USD/HUF token-árazás a 2. körben jön).
 
-## Publikálás előtt (KÖTELEZŐ)
-Az MVP a `VITE_` prefix miatt a kulcsot a kliens-bundle-be teszi — ez **csak
-helyi demóhoz** oké. Éles előtt egy vékony proxy (Vercel edge-function / kis
-FastAPI) mögé kell tenni a lánc-API hívást, hogy a kulcs SOHA ne kerüljön a
-frontendbe. A CoinGecko public hívás maradhat kliens-oldalon.
+## Publikálás előtt (KÖTELEZŐ) — server-side proxy
 
-## 2. kör (a spec szerint)
-SOL (Helius) + BTC (mempool.space), token USD/HUF-árazás, approvals-biztonsági
-panel, NFT, DeFi-pozíciók, „tárcád története" story-scroll, MNB-hivatalos-árfolyam
-toggle, CSV/PDF export.
+Az MVP a `VITE_` prefix miatt a kulcsokat (Etherscan, Helius) a **kliens-bundle-be**
+teszi — ez **csak helyi demóhoz** oké. Éles (nem-demo) mód előtt a kulcsos hívásokat
+proxy mögé KELL tenni, hogy kulcs SOHA ne kerüljön a frontendbe. Ez deploy-modell
+váltás — külön körben, jóváhagyással. A terv (Vercel edge functions):
+
+1. `api/etherscan.ts` edge function: átveszi a query-paramokat, hozzáteszi az
+   `ETHERSCAN_KEY`-t (sima env, NEM `VITE_`), továbbhívja az Etherscan V2-t,
+   cache-eli (s-maxage) a választ. Rate-limit / origin-check a functionben.
+2. `api/solana.ts` edge function: JSON-RPC passthrough a Helius endpointra
+   (`HELIUS_KEY` szerver-oldalon); csak a whitelisted metódusok
+   (`getBalance`, `getTokenAccountsByOwner`) engedettek.
+3. Frontend: `src/lib/etherscan.ts` `BASE` és `src/lib/solana.ts` `RPC` env-ből
+   kapcsolható a `/api/...` proxy-útvonalra (`VITE_API_PROXY=true`); a `VITE_*KEY`
+   változók éles buildben ÜRESEN maradnak.
+4. A keyless hívások (Blockscout, CoinGecko public, ensdata, mempool.space)
+   maradhatnak kliens-oldalon — nincs bennük titok.
+5. Bónusz: ugyanez a proxy oldja fel az **MNB-árfolyam** CORS-blokkját is (lásd lent).
+
+## MNB hivatalos-árfolyam toggle — miért nincs még
+
+2026-07-10-i vizsgálat: az MNB árfolyam-adata **böngészőből közvetlenül nem
+lekérhető** — a `www.mnb.hu/arfolyamok.asmx` SOAP-szolgáltatás (a) nem küld
+CORS-headert (`Access-Control-Allow-Origin` nincs), (b) a WAF a nem-böngészős
+POST-okat is dobja, (c) publikus CORS-proxyn keresztül Cloudflare-challenge jön.
+Kliens-only appból tehát az „MNB szerinti HUF" **nem építhető meg becsületesen**
+(fake/harmadik-fél tükör adatot nem mutatunk). A fenti edge-proxy 5. pontja után
+triviális: egy `api/mnb.ts` function napi cache-sel adja a hivatalos USD/EUR→HUF
+fixinget, a UI-ban a CoinGecko-HUF mellett togglelhetően.
+
+## Állapot (2026-07-10)
+KÉSZ a 2. körből: SOL (keyless native + kulccsal SPL) + BTC (mempool.space),
+token USD/HUF-árazás, **in-app approvals-lista** (Blockscout Approval-logok, 6 lánc,
+kulcs nélkül) + revoke.cash deep-link, NFT-galéria, „tárcád története", CSV/PDF
+export, ENS reverse-név + avatar, aktivitás/gas/cashflow **minden EVM címre
+aggregálva**. Hátra: DeFi-pozíciók (keyless nem tiszta — lásd FEATURE_MATRIX),
+MNB-toggle (proxy kell, fent), server-side proxy (publikálás-blokkoló).

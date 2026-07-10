@@ -6,14 +6,14 @@ Vezető appok: Zerion, DeBank, Zapper, Rotki, Koinly, Rabby, Arkham, Nansen.
 | Funkció | Ki adja | Náluk ingyen/fizetős | Nálunk | Státusz |
 |---|---|---|---|---|
 | Token-holdings (összes ERC-20) | mind | ingyen | ✅ keyless (Blockscout) | KÉSZ |
-| USD + **HUF** érték minden tételen | senki HUF-natívan | — | ✅ HUF-natív + MNB-terv | KÉSZ (diff) |
+| USD + **HUF** érték minden tételen | senki HUF-natívan | — | ✅ HUF-natív; MNB-toggle a proxy után (CORS-blokk, lásd README) | KÉSZ (diff) |
 | **Multichain** (eth/base/arb/op/polygon/gnosis) | Zerion/DeBank | ingyen | ✅ 5 lánc keyless, összevonva | KÉSZ |
 | **Több-cím összevonás** | DeBank/Zerion Premium | részben fizetős | ✅ korlátlan cím + ENS | KÉSZ |
-| ENS-feloldás (név↔cím) | mind | ingyen | ✅ keyless (ensdata) | KÉSZ |
+| ENS-feloldás (név↔cím) + reverse-név/avatar kirajzolás | mind | ingyen | ✅ keyless (ensdata), header + watchlist | KÉSZ |
 | Portfólió-allokáció (pie + per-lánc) | mind | ingyen | ✅ donut + per-lánc sáv | KÉSZ |
 | **Spam/hamis-ár szűrés** | DeBank/Zerion (curated) | ingyen | ✅ majors-whitelist + $1M cap guard | KÉSZ |
 | NFT-galéria | mind | ingyen | ✅ keyless, valós képek | KÉSZ |
-| **Approvals + revoke** (biztonság) | revoke.cash / DeBank | ingyen (revoke.cash) | ✅ 1-kattintásos revoke.cash deep-link | KÉSZ (in-app lista → 4. kör) |
+| **Approvals + revoke** (biztonság) | revoke.cash / DeBank | ingyen (revoke.cash) | ✅ IN-APP allowance-lista (Approval-logok, 6 lánc, keyless) + revoke.cash deep-link | KÉSZ |
 | Elégetett gas (HUF hero) | senki nem hero-metrikaként | — | ✅ animált, akkori árfolyamon | KÉSZ (diff) |
 | Cashflow-idővonal (havi be/ki) | Zerion/DeBank | ingyen | ✅ oszlopdiagram | KÉSZ |
 | „Tárca története" narratíva | senki | — | ✅ megosztható kártya | KÉSZ (diff) |

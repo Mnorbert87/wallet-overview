@@ -6,13 +6,17 @@ import { exportTxs } from "../lib/csv";
 
 export function TxTable({ rows, currency, address }: { rows: TxRow[]; currency: "usd" | "huf"; address?: string }) {
   const t = useT();
-  const [filter, setFilter] = useState<"all" | "in" | "out" | "eth">("all");
+  const [filter, setFilter] = useState<"all" | "in" | "out" | "eth" | "whale">("all");
   const fmt = currency === "usd" ? fmtUsd : fmtHuf;
   const val = (r: TxRow) => (currency === "usd" ? r.usd : r.huf);
   const gas = (r: TxRow) => (currency === "usd" ? r.gasUsd : r.gasHuf);
+  const hasWhale = rows.some((r) => r.whale);
 
   const shown = rows.filter((r) =>
-    filter === "all" ? true : filter === "eth" ? r.kind === "ETH" : r.direction === filter,
+    filter === "all" ? true
+      : filter === "eth" ? r.kind === "ETH"
+      : filter === "whale" ? r.whale
+      : r.direction === filter,
   );
 
   const Btn = ({ k, label }: { k: typeof filter; label: string }) => (
@@ -33,6 +37,7 @@ export function TxTable({ rows, currency, address }: { rows: TxRow[]; currency: 
         <h3 className="text-sm font-semibold text-slate-200">{t("tx.title")}</h3>
         <div className="flex gap-1 items-center flex-wrap">
           <Btn k="all" label={t("tx.all")} /><Btn k="in" label={t("tx.in")} /><Btn k="out" label={t("tx.out")} /><Btn k="eth" label="ETH" />
+          {hasWhale && <Btn k="whale" label={t("tx.whale")} />}
           {rows.length > 0 && (
             <button
               onClick={() => exportTxs(address || "wallet", rows)}
@@ -58,7 +63,12 @@ export function TxTable({ rows, currency, address }: { rows: TxRow[]; currency: 
           <tbody>
             {shown.slice(0, 60).map((r, i) => (
               <tr key={r.hash + i} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                <td className="py-2 pr-3 text-slate-400 whitespace-nowrap">{fmtDate(r.timeStamp)}</td>
+                <td className="py-2 pr-3 text-slate-400 whitespace-nowrap">
+                  {fmtDate(r.timeStamp)}
+                  {r.whale && (
+                    <span className="ml-1.5 text-xs" title={t("tx.whaleTip")} aria-label={t("tx.whale")}>🐋</span>
+                  )}
+                </td>
                 <td className="py-2 pr-3">
                   <span className={r.direction === "in" ? "text-cyan-soft" : "text-slate-400"}>
                     {r.direction === "in" ? t("tx.dirIn") : t("tx.dirOut")}

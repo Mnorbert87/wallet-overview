@@ -17,6 +17,7 @@ export interface TxRow {
   gasUsd: number; // csak kimenő native tx-en
   gasHuf: number;
   failed: boolean;
+  whale: boolean; // nagy-mozgás: a tárca saját ETH-eloszlásához mért kiugró érték
 }
 
 export interface Overview {
@@ -93,7 +94,7 @@ export async function buildOverview(address: string): Promise<Overview> {
       rows.push({
         hash: t.hash, timeStamp: t.timeStamp, kind: "ETH",
         direction: t.isOutgoing ? "out" : "in", amount: valEth,
-        usd, huf, gasUsd, gasHuf, failed: t.isError,
+        usd, huf, gasUsd, gasHuf, failed: t.isError, whale: false,
       });
     }
   }
@@ -107,11 +108,23 @@ export async function buildOverview(address: string): Promise<Overview> {
     rows.push({
       hash: t.hash, timeStamp: t.timeStamp, kind: t.symbol,
       direction: t.isOutgoing ? "out" : "in", amount: t.amount,
-      usd: 0, huf: 0, gasUsd: 0, gasHuf: 0, failed: false,
+      usd: 0, huf: 0, gasUsd: 0, gasHuf: 0, failed: false, whale: false,
     });
   }
 
   rows.sort((a, b) => b.timeStamp - a.timeStamp);
+
+  // Nagy-mozgás (whale) flag: a tárca SAJÁT árazott ETH-tranzakcióihoz mért kiugró
+  // érték — dinamikus küszöb (median × mult), $1k alsó padlóval a zaj kiszűrésére.
+  // Így egy kis és egy bálna-tárcánál is a rá jellemzőhöz képest jelöl. Token-sorok
+  // (usd=0, árazatlan) sosem jelölődnek — nem árazzuk túl őket.
+  const WHALE_FLOOR_USD = 1000, WHALE_MULT = 5;
+  const pricedUsd = rows.filter((r) => r.kind === "ETH" && r.usd > 0).map((r) => r.usd).sort((a, b) => a - b);
+  if (pricedUsd.length >= 4) {
+    const median = pricedUsd[Math.floor(pricedUsd.length / 2)];
+    const threshold = Math.max(WHALE_FLOOR_USD, median * WHALE_MULT);
+    for (const r of rows) if (r.kind === "ETH" && r.usd >= threshold) r.whale = true;
+  }
 
   let most: { ym: string; count: number } | null = null;
   for (const [ym, c] of monthCount) if (!most || c > most.count) most = { ym, count: c };

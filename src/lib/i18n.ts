@@ -126,6 +126,8 @@ const DICT: Record<string, [string, string]> = {
   "tx.dirOut": ["↑ ki", "↑ out"],
   "tx.failed": ["hibás", "failed"],
   "tx.priceUnavail": ["ár nem elérhető", "price unavailable"],
+  "tx.whale": ["🐋 Nagy", "🐋 Large"],
+  "tx.whaleTip": ["Nagy-mozgás: kiugró ETH-tranzakció a tárca saját eloszlásához mérten (a medián ötszöröse felett, min. $1000).", "Large move: an ETH transaction that stands out against this wallet's own distribution (above 5× median, min. $1000)."],
   "tx.truncated": ["Az első 60 sor látszik ({n} összesen).", "Showing first 60 rows ({n} total)."],
   "wl.sub": ["watch-only · perzisztens (localStorage)", "watch-only · persistent (localStorage)"],
   "wl.addrPlaceholder": ["Cím: 0x… / SOL base58 / bc1…", "Address: 0x… / SOL base58 / bc1…"],

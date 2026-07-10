@@ -18,7 +18,7 @@ Vezető appok: Zerion, DeBank, Zapper, Rotki, Koinly, Rabby, Arkham, Nansen.
 | Cashflow-idővonal (havi be/ki) | Zerion/DeBank | ingyen | ✅ oszlopdiagram | KÉSZ |
 | „Tárca története" narratíva | senki | — | ✅ megosztható kártya | KÉSZ (diff) |
 | Counterparty-k (top partnerek) | Arkham | ingyen | ✅ tx-ekből | KÉSZ |
-| Whale/nagy-mozgás jelző | Arkham/Nansen | Nansen fizetős | ⚠️ tx-flag alap kész, dúsítás 4. kör | RÉSZBEN |
+| Whale/nagy-mozgás jelző | Arkham/Nansen | Nansen fizetős | ✅ tx-szintű 🐋 flag (tárca-relatív dinamikus küszöb) + szűrő + portfólió-szintű oversized-native banner | KÉSZ |
 | CSV export | Koinly/CoinTracking | fizetős (tax) | ✅ holdings + tx CSV | KÉSZ |
 | PDF / nyomtatás | Koinly (tax-report fizetős) | fizetős | ✅ kliens-oldali print-to-PDF | KÉSZ |
 | **DeFi-pozíciók** (lending/LP/staking) | Zapper/DeBank/Zerion | ingyen (de saját indexer) | ⛔ keyless NEM megoldható tisztán | 4. kör — lásd lent |

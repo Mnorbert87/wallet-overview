@@ -28,7 +28,7 @@ function rows(): TxRow[] {
     hash: "0xmock" + i,
     timeStamp: Math.floor(new Date(d + "T12:00:00Z").getTime() / 1000),
     kind, direction: dir as "in" | "out", amount: amt,
-    usd, huf, gasUsd: gu, gasHuf: gh, failed: false,
+    usd, huf, gasUsd: gu, gasHuf: gh, failed: false, whale: kind === "ETH" && usd >= 5000,
   }));
 }
 

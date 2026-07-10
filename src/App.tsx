@@ -409,8 +409,13 @@ function Result({ data, pf, pLoading, wallets, primary, isMock }: { data: Overvi
       {/* Aktivitás tx-tábla */}
       {data && <TxTable rows={data.txRows} currency={cur} address={data.address} />}
 
-      {/* Approvals biztonsági panel — valós revoke.cash deep-link (nincs fake adat) */}
-      {headAddr && <div className="mt-6"><ApprovalsPanel address={headAddr} /></div>}
+      {/* B3: Approvals biztonsági panel — valós in-app allowance-lista (Blockscout
+          Approval-logok) + revoke.cash deep-link. CSAK EVM címre értelmes (a korábbi
+          headAddr SOL/BTC címet is kaphatott → törött lekérés/link). */}
+      {(() => {
+        const evmAddr = wallets.find((w) => w.type === "evm")?.address;
+        return evmAddr ? <div className="mt-6"><ApprovalsPanel address={evmAddr} /></div> : null;
+      })()}
     </div>
   );
 }

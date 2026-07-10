@@ -48,6 +48,10 @@ async function rpc(method: string, params: any[]): Promise<any> {
   // #10/#26: retry+backoff — egy tranziens 429/5xx ne dobja el a hívást.
   let lastErr: unknown;
   for (let i = 0; i < 3; i++) {
+    // BUGFIX: timeout — egy beragadt (soha nem settle-elő) RPC-fetch különben
+    // örökre blokkolná a retry-loopot ÉS az aggregate Promise.all-ját.
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 10000);
     try {
       const r = await fetch(RPC, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -55,6 +59,7 @@ async function rpc(method: string, params: any[]): Promise<any> {
         // #WO key-leak: a Helius api-key az RPC-URL query-jében van → no-referrer,
         // hogy ne szivárogjon ki Referer-headerben.
         referrerPolicy: "no-referrer",
+        signal: ctrl.signal,
       });
       if (!r.ok) {
         if (r.status === 429 || r.status >= 500) { lastErr = new Error(`Solana RPC ${r.status}`); }
@@ -64,7 +69,7 @@ async function rpc(method: string, params: any[]): Promise<any> {
         if (j.error) throw new Error(j.error.message || "Solana RPC error");
         return j.result;
       }
-    } catch (e) { lastErr = e; }
+    } catch (e) { lastErr = e; } finally { clearTimeout(to); }
     if (i < 2) await new Promise((res) => setTimeout(res, 400 * (i + 1)));
   }
   throw lastErr;
@@ -78,11 +83,13 @@ async function cgPrices(ids: string[]): Promise<Record<string, { usd: number }>>
   const url = `${CG}/simple/price?ids=${[...new Set(ids)].join(",")}&vs_currencies=usd`;
   const headers = { Accept: "application/json", ...cgHeaders() };
   for (let i = 0; i < 3; i++) {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 10000);
     try {
-      const r = await fetch(url, { headers, referrerPolicy: "no-referrer" });
+      const r = await fetch(url, { headers, referrerPolicy: "no-referrer", signal: ctrl.signal });
       if (r.ok) return await r.json();
       if (r.status !== 429 && r.status < 500) return {}; // nem-retriable → best-effort üres
-    } catch { /* hálózati hiba → retry */ }
+    } catch { /* hálózati hiba/timeout → retry */ } finally { clearTimeout(to); }
     if (i < 2) await new Promise((res) => setTimeout(res, 400 * (i + 1)));
   }
   return {};

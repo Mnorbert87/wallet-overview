@@ -35,12 +35,16 @@ async function priceRetry(url: string, ms: number, retries = 2): Promise<any> {
 async function mempoolAccount(addr: string): Promise<any> {
   let lastErr: unknown;
   for (let i = 0; i < 2; i++) {
+    // BUGFIX: timeout — beragadt mempool.space-kapcsolat különben sosem resolve-ol,
+    // és a fetchBitcoin Promise.all-ján át az egész aggregate-et megállítaná.
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 8000);
     try {
-      const r = await fetch(`${MEMPOOL}/address/${encodeURIComponent(addr)}`);
+      const r = await fetch(`${MEMPOOL}/address/${encodeURIComponent(addr)}`, { signal: ctrl.signal });
       if (r.ok) return await r.json();
       if (r.status !== 429 && r.status < 500) throw new Error(`mempool ${r.status}`);
       lastErr = new Error(`mempool ${r.status}`);
-    } catch (e) { lastErr = e; }
+    } catch (e) { lastErr = e; } finally { clearTimeout(to); }
     await new Promise((res) => setTimeout(res, 500 * (i + 1)));
   }
   throw lastErr;

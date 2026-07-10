@@ -322,8 +322,17 @@ async function chainAssets(addr: string, chain: Chain, factor: number): Promise<
   });
   const nAmt = Number(acct.coin_balance || 0) / 1e18;
   const nRate = Number(acct.exchange_rate || 0);
-  // A native coin ára megbízható (a lánc alap-eszköze) → mindig verified.
-  if (nAmt * nRate >= DUST_USD) assets.push(mk(chain.native, chain.name + " " + chain.native, "native", nAmt, nRate, true));
+  // BUGFIX: ha a Blockscout exchange_rate hiányzik/0 (ismert megbízhatatlanság),
+  // a valódi native egyenleget SOHA ne dobd el csendben. Van-ár + dust felett →
+  // verified; nincs-ár + nem-nulla egyenleg → unverified sor (≈?, nem húzza a totált).
+  if (nAmt > 0) {
+    if (nRate > 0) {
+      if (nAmt * nRate >= DUST_USD) assets.push(mk(chain.native, chain.name + " " + chain.native, "native", nAmt, nRate, true));
+      // else: valódi dust ismert árral → kihagyás
+    } else {
+      assets.push(mk(chain.native, chain.name + " " + chain.native, "native", nAmt, 0, false));
+    }
+  }
   for (const it of tokItems) {
     const t = it.token || {};
     const dec = Number.isFinite(+t.decimals) ? +t.decimals : 18;

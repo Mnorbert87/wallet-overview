@@ -44,6 +44,7 @@ const DICT: Record<string, [string, string]> = {
   "res.walletsMerged": ["{n} tárca összevonva", "{n} wallets merged"],
   "res.wallet": ["Tárca", "Wallet"],
   "res.totalValue": ["Portfólió összérték (multichain)", "Total portfolio value (multichain)"],
+  "res.change24hTip": ["A verified eszközök érték-súlyozott 24 órás ár-változása (CoinGecko).", "Value-weighted 24h price change of verified assets (CoinGecko)."],
   "btn.print": ["PDF / Nyomtatás", "PDF / Print"],
   "pf.loading": ["Multichain portfólió betöltése (Blockscout, 6 lánc)…", "Loading multichain portfolio (Blockscout, 6 chains)…"],
   "pf.title": ["Portfólió — {n} eszköz, {c} lánc", "Portfolio — {n} assets, {c} chains"],

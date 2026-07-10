@@ -59,8 +59,33 @@ export default function App() {
   const [isMock, setIsMock] = useState(false);
   const [pfError, setPfError] = useState(false); // portfólió-adatforrás nem elérhető
 
-  // Perzisztens watchlist betöltése induláskor.
-  useEffect(() => { setWallets(loadWallets()); }, []);
+  // Perzisztens watchlist betöltése induláskor + QUICK-WIN #7: ?address= URL-ből.
+  // Egy megosztott/bookmarkolt link (pl. ?address=vitalik.eth,0x…) betölti azt a nézetet.
+  useEffect(() => {
+    const base = loadWallets();
+    const q = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("address");
+    if (q) {
+      (async () => {
+        let cur = base;
+        for (const part of q.split(/[\s,]+/).filter(Boolean)) {
+          const r = await resolveInput(part); // ENS → cím
+          cur = addWallet(cur, r.address || part, r.ens || "").list;
+        }
+        setWallets(cur);
+      })();
+    } else {
+      setWallets(base);
+    }
+  }, []);
+
+  // QUICK-WIN #7: wallets → URL szinkron (megosztható/deep-linkelhető nézet).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (wallets.length) url.searchParams.set("address", wallets.map((w) => w.address).join(","));
+    else url.searchParams.delete("address");
+    window.history.replaceState({}, "", url.toString());
+  }, [wallets]);
 
   // Az összevont portfólió a figyelt tárcákból (EVM+SOL+BTC), amikor a lista v.
   // a lánc-szűrő változik. Watch-only, keyless.
@@ -268,8 +293,14 @@ function Result({ data, pf, pLoading, ens, primary, isMock }: { data: Overview |
           {pf && (
             <div className="text-right">
               <div className="text-xs text-slate-400">{t("res.totalValue")}</div>
-              <div className="text-lg font-semibold cyan-text">
+              <div className="text-lg font-semibold cyan-text flex items-center gap-2 justify-end">
                 {cur === "usd" ? `$${Math.round(pf.totalUsd).toLocaleString("en-US")}` : `${Math.round(pf.totalHuf).toLocaleString("hu-HU")} Ft`}
+                {/* QUICK-WIN #5: portfólió-szintű 24h delta chip */}
+                {typeof pf.change24hPct === "number" && (
+                  <span className={`text-xs font-medium ${pf.change24hPct >= 0 ? "text-emerald-400" : "text-red-400"}`} title={t("res.change24hTip")}>
+                    {pf.change24hPct >= 0 ? "▲" : "▼"}{Math.abs(pf.change24hPct).toFixed(1)}% 24h
+                  </span>
+                )}
               </div>
             </div>
           )}

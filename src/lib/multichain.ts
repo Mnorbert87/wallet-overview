@@ -155,6 +155,7 @@ export interface Asset {
   amount: number; priceUsd: number; valueUsd: number; valueHuf: number; allocationPct: number;
   verified: boolean; // az ár megbízható forrásból (allowlist v. CoinGecko)
   oversized?: boolean; // native coin, valós ár, DE > sanity cap → "szokatlanul nagy, ellenőrizd"
+  change24h?: number; // QUICK-WIN #5: 24h ár-változás % (CG include_24hr_change-ből, ha elérhető)
 }
 export interface Nft { collection: string; tokenId: string; image: string | null; chain: string; }
 export interface Portfolio {
@@ -173,6 +174,18 @@ export interface Portfolio {
   nfts: Nft[]; nftCount: number;
   chainErrors: string[];
   degradedChains?: string[]; // BUGFIX #1: token-lista lekérése bukott (≠ 0 holding) — "adat nem elérhető"
+  change24hPct?: number; // QUICK-WIN #5: portfólió-szintű, érték-súlyozott 24h ár-változás %
+}
+
+// QUICK-WIN #5: érték-súlyozott portfólió 24h % a verified eszközök change24h-jából.
+export function portfolioChange24h(assets: Asset[]): number | undefined {
+  let w = 0, sum = 0;
+  for (const a of assets) {
+    if (a.verified && typeof a.change24h === "number" && a.valueUsd > 0) {
+      w += a.valueUsd; sum += a.valueUsd * a.change24h;
+    }
+  }
+  return w > 0 ? sum / w : undefined;
 }
 
 // Lánc-meta lookup (EVM + SOL + BTC) a UI-badge-ekhez / allokáció-sávhoz.
@@ -265,10 +278,13 @@ export async function crossCheckNative(assets: Asset[]): Promise<void> {
   const ids = [...new Set(natives.map((a) => CG_NATIVE_ID[a.chain]).filter(Boolean))];
   if (!ids.length) return;
   let spot: any;
-  try { spot = await jget(`${CG}/simple/price?ids=${ids.join(",")}&vs_currencies=usd`, 8000, cgHeaders()); }
+  // QUICK-WIN #5: 24h ár-változás ugyanabban a hívásban (include_24hr_change) — nincs plusz CG-call.
+  try { spot = await jget(`${CG}/simple/price?ids=${ids.join(",")}&vs_currencies=usd&include_24hr_change=true`, 8000, cgHeaders()); }
   catch { return; } // CG nem elérhető → marad a Blockscout best-effort (nincs hamis dobás)
   for (const a of natives) {
-    const cg = spot[CG_NATIVE_ID[a.chain]]?.usd;
+    const row = spot[CG_NATIVE_ID[a.chain]];
+    const cg = row?.usd;
+    if (typeof row?.usd_24h_change === "number") a.change24h = row.usd_24h_change;
     if (!cg || cg <= 0) continue;
     if (Math.abs(a.priceUsd - cg) / cg > NATIVE_TOL) {
       a.verified = false; // a Blockscout native-ár kilóg a CG spot-ból → nem a totálba
@@ -418,7 +434,7 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
     assetCount: list.length, dustFiltered, suspiciousFiltered, oversizedNativeUsd, usdHufFactor: factor, perChainUsd,
     holdingsTruncated, pricingMode,
     assets: list, unverifiedAssets: unverifiedReal.slice(0, 40), nfts: nfts.slice(0, 150), nftCount, chainErrors,
-    degradedChains,
+    degradedChains, change24hPct: portfolioChange24h(verified),
   };
 }
 
@@ -442,11 +458,13 @@ export async function crossCheckCoinGecko(assets: Asset[], factor: number): Prom
       const addrs = batch.map((a) => a.contract).join(",");
       try {
         const j = await jgetRetry(
-          `${CG}/simple/token_price/${platform}?contract_addresses=${addrs}&vs_currencies=usd`,
+          // QUICK-WIN #5: 24h ár-változás ugyanabban a batch-hívásban (nincs plusz CG-call).
+          `${CG}/simple/token_price/${platform}?contract_addresses=${addrs}&vs_currencies=usd&include_24hr_change=true`,
           12000, cgHeaders(),
         );
         for (const a of batch) {
           const px = j[a.contract]?.usd;
+          if (typeof j[a.contract]?.usd_24h_change === "number") a.change24h = j[a.contract].usd_24h_change;
           if (typeof px === "number" && px > 0) {
             a.priceUsd = px; a.valueUsd = a.amount * px; a.valueHuf = a.valueUsd * factor; a.verified = true;
           } else { a.verified = isCanonicalAsset(a); } // nem listázott → csak kanonikus marad verified

@@ -112,7 +112,15 @@ export function PortfolioPanel({ p, currency }: { p: Portfolio; currency: "usd" 
                 <div className={a.verified ? "text-slate-200" : "text-slate-500"} title={a.verified ? undefined : t("pf.priceUnverifiedTip")}>
                   {a.verified ? fmt(val(a)) : "≈ ?"}
                 </div>
-                <div className="text-[11px] text-slate-500">{a.verified ? `${a.allocationPct.toFixed(1)}%` : ""}</div>
+                <div className="text-[11px] text-slate-500 flex items-center gap-1.5 justify-end">
+                  {a.verified && <span>{a.allocationPct.toFixed(1)}%</span>}
+                  {/* QUICK-WIN #5: per-token 24h ár-változás chip (ha CG-adat van rá) */}
+                  {typeof a.change24h === "number" && (
+                    <span className={a.change24h >= 0 ? "text-emerald-400/80" : "text-red-400/80"}>
+                      {a.change24h >= 0 ? "▲" : "▼"}{Math.abs(a.change24h).toFixed(1)}%
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           ))}

@@ -1,7 +1,7 @@
 // Összevont watchlist-portfólió: EVM (5 lánc) + SOL + BTC egy közös nézetben.
 // Watch-only, keyless. Verified/unverified szétválasztás, per-lánc ÉS per-tárca bontás.
 import { Wallet } from "./wallets";
-import { Asset, Portfolio, fetchPortfolio, sharedUsdHuf, capOk, SANITY_CAP, HAS_CG_KEY, crossCheckCoinGecko, crossCheckNative } from "./multichain";
+import { Asset, Portfolio, fetchPortfolio, sharedUsdHuf, capOk, SANITY_CAP, HAS_CG_KEY, crossCheckCoinGecko, crossCheckNative, portfolioChange24h } from "./multichain";
 import { fetchSolana } from "./solana";
 import { fetchBitcoin } from "./bitcoin";
 
@@ -149,5 +149,6 @@ export async function fetchWatchlist(wallets: Wallet[], evmChains: string[]): Pr
     perChainUsd, perWalletUsd, walletsWithAssets: [...walletsWithAssets], walletsErrored: [...walletsErrored], holdingsTruncated, pricingMode,
     assets: list, unverifiedAssets: unverified.slice(0, 60),
     nfts: nfts.slice(0, 150), nftCount, chainErrors, degradedChains,
+    change24hPct: portfolioChange24h(verified),
   };
 }

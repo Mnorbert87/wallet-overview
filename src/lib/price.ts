@@ -71,15 +71,47 @@ export async function ethPriceMap(firstTxSec: number): Promise<PriceMap> {
   // #5: ha a tárca-history hosszabb mint amennyi ársort le tudunk kérni (keyless
   // 365 nap), a 365 napnál régebbi tx-ek az ~1 éve árán értékelődnek → degradált.
   if (wantDays > maxDays) _lastDegraded = true;
+
+  // QUICK-WIN #6: localStorage ár-cache. A múltbeli napi árak VÁLTOZHATATLANOK, a
+  // mai árra rövid TTL. Friss (<15 perc) és a kért range-t lefedő cache → nincs újabb
+  // CG-hívás (free-tier kímélés reload-onként). Egyébként fetch + MERGE a cache-be (a
+  // régi napok megmaradnak), és a szériahiba (429) esetén a cache-fallback jobb mint üres.
+  const cached = loadPxCache();
+  const nowMs = Date.now();
+  if (cached && cached.spanDays >= spanDays && (nowMs - cached.ts) < TODAY_TTL_MS) {
+    return cached.map;
+  }
+
   // #WO price-retry: a két szériát SZÉRIÁLISAN kérjük (nem Promise.all) — felezi a
   // pillanatnyi CG-request-burst-öt, kevesebb 429 a keyless free-tieren.
   const usd = await series("usd", spanDays);
   const huf = await series("huf", spanDays);
-  const map: PriceMap = {};
+  // A cache-elt (immutable) napokból indulunk, hogy egy részleges/hibás fetch se dobja el őket.
+  const map: PriceMap = cached ? { ...cached.map } : {};
   for (const d of Object.keys(usd)) map[d] = { usd: usd[d], huf: huf[d] ?? 0 };
-  // huf-only napok (ritka) feltöltése
   for (const d of Object.keys(huf)) if (!map[d]) map[d] = { usd: 0, huf: huf[d] };
+
+  if (Object.keys(usd).length === 0 && cached) {
+    // teljes fetch-bukás → a cache (immutable múlt) jobb mint üres; NE frissítsük felül
+    return cached.map;
+  }
+  savePxCache(map, nowMs, Math.max(spanDays, cached?.spanDays ?? 0));
   return map;
+}
+
+// ── QUICK-WIN #6: ár-cache localStorage (wo-pxcache) ──────────────────────────
+const PXCACHE_KEY = "wo-pxcache";
+const TODAY_TTL_MS = 15 * 60 * 1000; // a mai árra rövid TTL; a múlt így is immutable a merge miatt
+function loadPxCache(): { map: PriceMap; ts: number; spanDays: number } | null {
+  try {
+    const raw = typeof localStorage !== "undefined" && localStorage.getItem(PXCACHE_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return d && d.map ? d : null;
+  } catch { return null; }
+}
+function savePxCache(map: PriceMap, ts: number, spanDays: number): void {
+  try { localStorage.setItem(PXCACHE_KEY, JSON.stringify({ map, ts, spanDays })); } catch { /* private mode / kvóta */ }
 }
 
 /** Legközelebbi ismert nap árfolyama egy tx-hez (ha a pontos nap hiányzik). */

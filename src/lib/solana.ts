@@ -6,12 +6,16 @@ import { Asset } from "./multichain";
 
 // #WO-runtime: a public api.mainnet-beta.solana.com böngésző-originből 403-at ad, ezért
 // KONFIGURÁLHATÓ RPC: saját Helius-kulcs (VITE_HELIUS_KEY) VAGY tetszőleges RPC-URL
-// (VITE_SOLANA_RPC). Fallback a public endpoint — ha a felhasználó nem ad kulcsot, a SOL
-// best-effort (a fetchSolana hibát ad vissza, a többi lánc NEM törik). Kulccsal valós.
+// (VITE_SOLANA_RPC). Kulcs nélküli alapértelmezett: solana-rpc.publicnode.com — böngésző-
+// CORS OK (access-control-allow-origin: *) és a NATIVE SOL (getBalance) élő. A publikus
+// endpoint viszont blokkolja a getTokenAccountsByOwner-t (SPL) → az SPL-token-holdings
+// üres marad kulcs nélkül (a native SOL él, a lánc NEM törik). Dedikált Helius-/RPC-kulccsal
+// az SPL is betölt. (2026-07-10: minden vizsgált keyless RPC vagy blokkolja az SPL-hívást,
+// vagy azonnal rate-limitel, vagy nincs CORS-a — a publicnode a legjobb keyless kompromisszum.)
 const HELIUS_KEY = (import.meta.env.VITE_HELIUS_KEY as string) || "";
 const RPC =
   (import.meta.env.VITE_SOLANA_RPC as string) ||
-  (HELIUS_KEY ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_KEY}` : "https://api.mainnet-beta.solana.com");
+  (HELIUS_KEY ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_KEY}` : "https://solana-rpc.publicnode.com");
 const SPL_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 // Token-2022 (SPL Token Extensions) — külön program-id. Best-effort: ha a public
 // RPC nem támogatja / hibázik, üresként kezeljük, a legacy SPL nem törik.

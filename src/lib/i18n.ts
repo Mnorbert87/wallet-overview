@@ -68,6 +68,8 @@ const DICT: Record<string, [string, string]> = {
                       "Unusually large balance — real chain data, but worth verifying."],
   "pf.truncated": ["⚠ A holdings-lista csonkítva lehet (nagyon sok token/NFT a lapozás-limit felett) — a total ennek egy részét nem tartalmazza.",
                    "⚠ Holdings list may be truncated (very many tokens/NFTs beyond the page limit) — the total may omit some of it."],
+  "pf.tokensDegraded": ["⚠ {chains} lánc token-listája most nem elérhető (rate-limit) — NEM 0 holding; próbáld újra kicsit később.",
+                        "⚠ Token list for {chains} is currently unavailable (rate-limit) — NOT zero holdings; try again shortly."],
   "pf.csv": ["CSV export", "CSV export"],
   "nft.title": ["NFT-galéria", "NFT gallery"],
   "nft.count": ["{n} NFT", "{n} NFTs"],

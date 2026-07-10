@@ -128,6 +128,9 @@ export function PortfolioPanel({ p, currency }: { p: Portfolio; currency: "usd" 
       {p.holdingsTruncated && (
         <p className="text-[11px] text-amber-400/70 mt-2">{t("pf.truncated")}</p>
       )}
+      {p.degradedChains && p.degradedChains.length > 0 && (
+        <p className="text-[11px] text-amber-400/80 mt-2">{t("pf.tokensDegraded", { chains: p.degradedChains.join(", ") })}</p>
+      )}
       {(unverifiedInList > 0 || p.suspiciousFiltered > 0) && (
         <p className="text-[11px] text-slate-500 mt-2">
           {unverifiedInList > 0 && p.pricingMode === "coingecko" && <>{t("pf.unverifiedNote", { n: unverifiedInList })} </>}

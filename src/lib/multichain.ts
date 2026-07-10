@@ -172,6 +172,7 @@ export interface Portfolio {
   unverifiedAssets: Asset[]; // nem ellenőrzött árú tokenek (a listában látszanak, NEM a totálban)
   nfts: Nft[]; nftCount: number;
   chainErrors: string[];
+  degradedChains?: string[]; // BUGFIX #1: token-lista lekérése bukott (≠ 0 holding) — "adat nem elérhető"
 }
 
 // Lánc-meta lookup (EVM + SOL + BTC) a UI-badge-ekhez / allokáció-sávhoz.
@@ -211,9 +212,10 @@ async function jgetRetry(url: string, ms: number, headers: Record<string, string
 
 // Blockscout v2 lapozás: next_page_params-ot query-vé fűzve, cap oldalig. Sosem dob
 // (részleges lap is jobb mint 0): egy oldal-hiba → az addig gyűjtött itemekkel tér vissza.
-async function fetchAllPages(baseUrl: string, cap = 8): Promise<{ items: any[]; truncated: boolean }> {
+async function fetchAllPages(baseUrl: string, cap = 8): Promise<{ items: any[]; truncated: boolean; fetchError: boolean }> {
   const items: any[] = [];
   let params: Record<string, any> | null = null;
+  let fetchError = false;
   for (let page = 0; page < cap; page++) {
     let url = baseUrl;
     if (params) {
@@ -222,7 +224,16 @@ async function fetchAllPages(baseUrl: string, cap = 8): Promise<{ items: any[]; 
       url += (baseUrl.includes("?") ? "&" : "?") + qp.toString();
     }
     let j: any;
-    try { j = await jget(url); } catch { break; }
+    try {
+      // BUGFIX #1 [HIGH]: a LEGELSŐ oldal RETRY-vel — egy 429 a page 0-n eddig némán
+      // ÜRES token-listát adott (truncated=false), amit a UI megerősített 0-holdingnak
+      // mutatott. Ha a retry után is bukik → fetchError, hogy "adat nem elérhető"-ként
+      // jelenjen meg, ne 0 holdingként. Page 2+ hiba továbbra is truncated=true (helyes).
+      j = page === 0 ? await jgetRetry(url, 15000, {}, 2) : await jget(url);
+    } catch {
+      if (page === 0) fetchError = true;
+      break;
+    }
     if (Array.isArray(j?.items)) items.push(...j.items);
     params = (j && j.next_page_params) || null;
     if (!params) break;
@@ -230,7 +241,39 @@ async function fetchAllPages(baseUrl: string, cap = 8): Promise<{ items: any[]; 
   // #WO-6: cap-hit jelzés — `params` csak akkor nem-null, ha a cap-et elértük ÉS van még
   // több adat (a lapok kimerülésekor null-ra állítjuk és break-elünk). Így a hívó tudja,
   // hogy a holdings-lista CSONKÍTVA van (nagy-wallet edge case, csendes undercount ellen).
-  return { items, truncated: params != null };
+  return { items, truncated: params != null, fetchError };
+}
+
+// BUGFIX #2 [MED]: native ár CG-spot cross-check. A native ár a Blockscout
+// acct.exchange_rate-ből jön, amit a crossCheckCoinGecko NEM ellenőriz → egy rossz,
+// de < SANITY_CAP native-rate JELZÉS NÉLKÜL inflálná a headline totált. Itt egyetlen
+// keyless CG simple/price hívással cross-checkeljük a native USD-árat a spothoz; ha a
+// tolerancia-sávon kívül esik, a native-t megbízhatatlannak jelöljük (verified=false →
+// kiesik a totálból, a listában "≈ ?"-ként látszik).
+const CG_NATIVE_ID: Record<string, string> = {
+  eth: "ethereum", base: "ethereum", arbitrum: "ethereum", optimism: "ethereum",
+  polygon: "matic-network", gnosis: "xdai",
+  // BUGFIX #4: BTC/SOL native is átmegy ugyanezen a plauzibilitás-sávon (konzisztens
+  // sanity — egy rossz-de-<$1M spot vagy wrong-decimals sats-calc kilóg a CG spotból).
+  btc: "bitcoin", sol: "solana",
+};
+const NATIVE_TOL = 0.15; // 15% tolerancia-sáv a Blockscout native-ár vs CG spot között
+
+export async function crossCheckNative(assets: Asset[]): Promise<void> {
+  const natives = assets.filter((a) => a.contract === "native" && a.verified);
+  if (!natives.length) return;
+  const ids = [...new Set(natives.map((a) => CG_NATIVE_ID[a.chain]).filter(Boolean))];
+  if (!ids.length) return;
+  let spot: any;
+  try { spot = await jget(`${CG}/simple/price?ids=${ids.join(",")}&vs_currencies=usd`, 8000, cgHeaders()); }
+  catch { return; } // CG nem elérhető → marad a Blockscout best-effort (nincs hamis dobás)
+  for (const a of natives) {
+    const cg = spot[CG_NATIVE_ID[a.chain]]?.usd;
+    if (!cg || cg <= 0) continue;
+    if (Math.abs(a.priceUsd - cg) / cg > NATIVE_TOL) {
+      a.verified = false; // a Blockscout native-ár kilóg a CG spot-ból → nem a totálba
+    }
+  }
 }
 
 async function usdHuf(): Promise<number> {
@@ -240,7 +283,7 @@ async function usdHuf(): Promise<number> {
   } catch { return 372; }
 }
 
-async function chainAssets(addr: string, chain: Chain, factor: number): Promise<{ assets: Asset[]; nfts: Nft[]; nftCount: number; dust: number; truncated: boolean }> {
+async function chainAssets(addr: string, chain: Chain, factor: number): Promise<{ assets: Asset[]; nfts: Nft[]; nftCount: number; dust: number; truncated: boolean; tokensDegraded: boolean }> {
   // KÜLÖN hibakezelés fetch-enként (audit #5): a token-endpoint 429-e NE dobja el a
   // lánc native-egyenlegét. Az account külön try/catch-el, a token/NFT lapozók sosem
   // dobnak (részleges lap is jobb mint 0). Így egy endpoint hibája nem visz mindent.
@@ -254,6 +297,7 @@ async function chainAssets(addr: string, chain: Chain, factor: number): Promise<
   const tokItems = tokPage.items;
   const nftItems = nftPage.items;
   const truncated = tokPage.truncated || nftPage.truncated; // #WO-6: holdings csonkítva?
+  const tokensDegraded = tokPage.fetchError; // BUGFIX #1: a token-lekérés első oldala bukott
   const assets: Asset[] = [];
   let dust = 0;
   const mk = (symbol: string, name: string, contract: string, amount: number, rate: number, verified: boolean): Asset => ({
@@ -288,7 +332,7 @@ async function chainAssets(addr: string, chain: Chain, factor: number): Promise<
     collection: (n.token || {}).name || "NFT", tokenId: String(n.id || "").slice(0, 8),
     image: (n.metadata || {}).image_url || (n.image_url ?? null), chain: chain.id,
   }));
-  return { assets, nfts, nftCount: nftItems.length, dust, truncated };
+  return { assets, nfts, nftCount: nftItems.length, dust, truncated, tokensDegraded };
 }
 
 export async function fetchPortfolio(addresses: string[], chainIds: string[], factorIn?: number, skipCrossCheck = false): Promise<Portfolio> {
@@ -300,7 +344,7 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
   for (const addr of addresses) for (const c of chains) {
     jobs.push(
       chainAssets(addr, c, factor).then((r) => ({ ok: true, chain: c.id, ...r }))
-        .catch(() => ({ ok: false, chain: c.id, assets: [], nfts: [], nftCount: 0, dust: 0, truncated: false })),
+        .catch(() => ({ ok: false, chain: c.id, assets: [], nfts: [], nftCount: 0, dust: 0, truncated: false, tokensDegraded: false })),
     );
   }
   const results = await Promise.all(jobs);
@@ -309,11 +353,13 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
   const nfts: Nft[] = [];
   const perChainUsd: Record<string, number> = {};
   const chainErrors: string[] = [];
+  const degradedChains: string[] = []; // BUGFIX #1: token-lista nem elérhető (≠ 0 holding)
   let dustFiltered = 0, nftCount = 0, holdingsTruncated = false;
   for (const r of results) {
     if (!r.ok) { if (!chainErrors.includes(r.chain)) chainErrors.push(r.chain); continue; }
     assets.push(...r.assets); nfts.push(...r.nfts); nftCount += r.nftCount; dustFiltered += r.dust;
     if (r.truncated) holdingsTruncated = true;
+    if (r.tokensDegraded && !degradedChains.includes(r.chain)) degradedChains.push(r.chain);
   }
   // azonos (contract+chain) tételek összevonása több cím esetén
   const merged = new Map<string, Asset>();
@@ -337,6 +383,9 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
     pricingMode = "coingecko";
     if (!skipCrossCheck) await crossCheckCoinGecko(allAssets, factor);
   }
+  // BUGFIX #2: native-ár cross-check (keyless is fut, egyetlen CG spot-hívás). Aggregate
+  // módban (skipCrossCheck) az aggregate.ts futtatja a union-ön; egyedülálló hívásnál itt.
+  if (!skipCrossCheck) await crossCheckNative(allAssets);
 
   const byVal = (x: Asset, y: Asset) => y.valueUsd - x.valueUsd;
   // A sanity-cap MINDEN ágon fut (audit #2): egy spoofolt "USDC" NE ugorhassa át a
@@ -369,6 +418,7 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
     assetCount: list.length, dustFiltered, suspiciousFiltered, oversizedNativeUsd, usdHufFactor: factor, perChainUsd,
     holdingsTruncated, pricingMode,
     assets: list, unverifiedAssets: unverifiedReal.slice(0, 40), nfts: nfts.slice(0, 150), nftCount, chainErrors,
+    degradedChains,
   };
 }
 

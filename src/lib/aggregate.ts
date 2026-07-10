@@ -1,7 +1,7 @@
 // Összevont watchlist-portfólió: EVM (5 lánc) + SOL + BTC egy közös nézetben.
 // Watch-only, keyless. Verified/unverified szétválasztás, per-lánc ÉS per-tárca bontás.
 import { Wallet } from "./wallets";
-import { Asset, Portfolio, fetchPortfolio, sharedUsdHuf, capOk, SANITY_CAP, HAS_CG_KEY, crossCheckCoinGecko } from "./multichain";
+import { Asset, Portfolio, fetchPortfolio, sharedUsdHuf, capOk, SANITY_CAP, HAS_CG_KEY, crossCheckCoinGecko, crossCheckNative } from "./multichain";
 import { fetchSolana } from "./solana";
 import { fetchBitcoin } from "./bitcoin";
 
@@ -13,6 +13,7 @@ export async function fetchWatchlist(wallets: Wallet[], evmChains: string[]): Pr
 
   const allAssets: Asset[] = []; // MINDEN valódi (nem-spam) token, verified flaggel
   const chainErrors: string[] = [];
+  const degradedChains: string[] = []; // BUGFIX #1: token-lista nem elérhető egy láncon
   const nfts: Portfolio["nfts"] = [];
   const perWalletUsd: Record<string, number> = {};
   const walletsErrored = new Set<string>(); // #WO-8b: cím-szintű fetch-hiba → NEM $0, hanem "hiba"
@@ -41,6 +42,7 @@ export async function fetchWatchlist(wallets: Wallet[], evmChains: string[]): Pr
       suspiciousFiltered += p.suspiciousFiltered;
       nftCount += p.nftCount; nfts.push(...p.nfts);
       for (const c of p.chainErrors) if (!chainErrors.includes(c)) chainErrors.push(c);
+      for (const c of (p.degradedChains || [])) if (!degradedChains.includes(c)) degradedChains.push(c); // BUGFIX #1
       // p.assets MÁR a teljes lista (verified + best-effort nem-verified) — a
       // suspicious/spam ott kiszűrve. Egy poolba gyűjtjük a verified flaggel.
       const tagged = tagWallet(p.assets, w.address);
@@ -88,6 +90,10 @@ export async function fetchWatchlist(wallets: Wallet[], evmChains: string[]): Pr
       }
     }
   }
+
+  // BUGFIX #2/#4: native-ár cross-check a UNION-ön (EVM + SOL + BTC egyszerre) — egy
+  // CG spot-hívással; a tolerancia-sávon kívüli native (rossz Blockscout/CG-spot) kiesik.
+  await crossCheckNative(allAssets);
 
   const byVal = (x: Asset, y: Asset) => y.valueUsd - x.valueUsd;
   // #16/#18: a totál CSAK verified ÉS sanity-cap-ot átmenő eszközből — a SOL/BTC
@@ -142,6 +148,6 @@ export async function fetchWatchlist(wallets: Wallet[], evmChains: string[]): Pr
     assetCount: list.length, dustFiltered, suspiciousFiltered, oversizedNativeUsd, usdHufFactor: factor,
     perChainUsd, perWalletUsd, walletsWithAssets: [...walletsWithAssets], walletsErrored: [...walletsErrored], holdingsTruncated, pricingMode,
     assets: list, unverifiedAssets: unverified.slice(0, 60),
-    nfts: nfts.slice(0, 150), nftCount, chainErrors,
+    nfts: nfts.slice(0, 150), nftCount, chainErrors, degradedChains,
   };
 }

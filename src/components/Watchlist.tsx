@@ -68,6 +68,12 @@ export function Watchlist({
               <div key={w.id} className="flex items-center justify-between gap-2 text-sm py-1.5 border-b border-white/[0.04] last:border-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ background: `${t.color}22`, color: t.color }}>{t.label}</span>
+                  {/* B4: ENS avatar (ha van) — keyless, ensdata.net-ből */}
+                  {w.ensAvatar && (
+                    <img src={w.ensAvatar} alt={w.ens || ""} referrerPolicy="no-referrer" loading="lazy"
+                      className="w-5 h-5 rounded-full border border-cyan/20 object-cover shrink-0"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                  )}
                   {editing === w.id ? (
                     <input autoFocus value={editVal} onChange={(e) => setEditVal(e.target.value)}
                       aria-label={tr("wl.rename")}
@@ -80,6 +86,8 @@ export function Watchlist({
                       {w.label}
                     </button>
                   )}
+                  {/* A2/B4: a reverse-resolved ENS név a wallet.ens mezőből — sosem a label */}
+                  {w.ens && w.ens !== w.label && <span className="text-cyan-soft/80 text-xs truncate">{w.ens}</span>}
                   <span className="text-slate-600 text-xs font-mono truncate">{shortAddr(w.address)}</span>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">

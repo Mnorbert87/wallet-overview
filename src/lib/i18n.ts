@@ -71,6 +71,10 @@ const DICT: Record<string, [string, string]> = {
                    "⚠ Holdings list may be truncated (very many tokens/NFTs beyond the page limit) — the total may omit some of it."],
   "pf.tokensDegraded": ["⚠ {chains} lánc token-listája most nem elérhető (rate-limit) — NEM 0 holding; próbáld újra kicsit később.",
                         "⚠ Token list for {chains} is currently unavailable (rate-limit) — NOT zero holdings; try again shortly."],
+  // A5: KÜLÖN copy a Solana SPL keyless-korlátra — ez PERMANENS (RPC-kulcs kell),
+  // nem tranziens rate-limit, ezért nem a generikus "próbáld újra később" szöveg.
+  "pf.solSplKeyless": ["⚠ Solana SPL tokenekhez (USDC, USDT, JUP…) RPC-kulcs kell (VITE_HELIUS_KEY vagy VITE_SOLANA_RPC) — kulcs nélkül csak a native SOL látszik.",
+                       "⚠ Solana SPL tokens (USDC, USDT, JUP…) require an RPC key (VITE_HELIUS_KEY or VITE_SOLANA_RPC) — without one only native SOL is shown."],
   "pf.csv": ["CSV export", "CSV export"],
   "nft.title": ["NFT-galéria", "NFT gallery"],
   "nft.count": ["{n} NFT", "{n} NFTs"],

@@ -13,9 +13,14 @@ import { Asset } from "./multichain";
 // az SPL is betölt. (2026-07-10: minden vizsgált keyless RPC vagy blokkolja az SPL-hívást,
 // vagy azonnal rate-limitel, vagy nincs CORS-a — a publicnode a legjobb keyless kompromisszum.)
 const HELIUS_KEY = (import.meta.env.VITE_HELIUS_KEY as string) || "";
+const SOLANA_RPC_ENV = (import.meta.env.VITE_SOLANA_RPC as string) || "";
 const RPC =
-  (import.meta.env.VITE_SOLANA_RPC as string) ||
+  SOLANA_RPC_ENV ||
   (HELIUS_KEY ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_KEY}` : "https://solana-rpc.publicnode.com");
+// A5 [MED]: keyless default RPC-n az SPL-lekérés (getTokenAccountsByOwner) blokkolt —
+// ezt EXPLICIT jelezzük a hívónak (splLimited), nem következtetünk üres byMint-ből
+// (0 SPL legit is lehet). A KEYLESS konstansra + a ténylegesen eltüzelt .catch-re kötve.
+const KEYLESS = !HELIUS_KEY && !SOLANA_RPC_ENV;
 const SPL_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 // Token-2022 (SPL Token Extensions) — külön program-id. Best-effort: ha a public
 // RPC nem támogatja / hibázik, üresként kezeljük, a legacy SPL nem törik.
@@ -95,7 +100,7 @@ async function cgPrices(ids: string[]): Promise<Record<string, { usd: number }>>
   return {};
 }
 
-export async function fetchSolana(addr: string, factor: number): Promise<{ assets: Asset[]; error?: boolean }> {
+export async function fetchSolana(addr: string, factor: number): Promise<{ assets: Asset[]; error?: boolean; splLimited?: boolean }> {
   try {
     // #10: getBalance dönti el a lánc-hibát; az SPL-hívások IZOLÁLTAK (.catch) —
     // ha az SPL 429-el de a getBalance sikerült, a SOL-egyenleg NEM vész el.
@@ -105,6 +110,9 @@ export async function fetchSolana(addr: string, factor: number): Promise<{ asset
       rpc("getTokenAccountsByOwner", [addr, { programId: TOKEN_2022_PROGRAM }, { encoding: "jsonParsed" }]).catch(() => null),
     ]);
     const solAmt = (bal?.value ?? 0) / 1e9;
+    // A5: az SPL-lefedettség korlátozott, ha keyless módban futunk, VAGY ha a native
+    // sikerült, de mindkét SPL-hívás .catch-re futott (429 / blokkolt endpoint).
+    const splLimited = KEYLESS || (toks === null && toks2022 === null);
 
     // begyűjtjük a mint→amount-ot (több account is lehet egy mintre, legacy + Token-2022)
     const byMint = new Map<string, number>();
@@ -139,7 +147,7 @@ export async function fetchSolana(addr: string, factor: number): Promise<{ asset
         assets.push(mk(mint.slice(0, 4) + "…", "SPL token", mint, amt, 0, false));
       }
     }
-    return { assets };
+    return { assets, splLimited };
   } catch {
     return { assets: [], error: true };
   }

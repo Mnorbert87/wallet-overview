@@ -3,7 +3,9 @@
 import { t } from "./i18n";
 
 export type WalletType = "evm" | "sol" | "btc";
-export interface Wallet { id: string; address: string; label: string; type: WalletType; }
+// A2: az `ens` a REVERSE-RESOLVED név (resolveInput-ból), KÜLÖN a labeltől — a nyers
+// hex címek generikus labelt kapnak, azt TILOS ENS-ként mutatni. ensAvatar: ENS avatar URL.
+export interface Wallet { id: string; address: string; label: string; type: WalletType; ens?: string; ensAvatar?: string; }
 
 const KEY = "wallet-overview-watchlist-v1";
 
@@ -37,7 +39,7 @@ export function saveWallets(list: Wallet[]): void {
 }
 
 let seq = 0;
-export function addWallet(list: Wallet[], address: string, label: string): { list: Wallet[]; error?: string } {
+export function addWallet(list: Wallet[], address: string, label: string, ens?: string, ensAvatar?: string): { list: Wallet[]; error?: string } {
   const s = address.trim();
   const type = detectType(s);
   // #WO-3: i18n KULCS-ot adunk vissza (nem nyers HU szöveg) — a hívó t()-vel oldja fel.
@@ -45,7 +47,11 @@ export function addWallet(list: Wallet[], address: string, label: string): { lis
   const norm = type === "evm" ? s.toLowerCase() : s;
   if (list.some((w) => w.address === norm)) return { list, error: "err.duplicate" };
   const id = `${Date.now().toString(36)}-${(seq++).toString(36)}`;
-  const next = [...list, { id, address: norm, label: label.trim() || defaultLabel(type, list), type }];
+  // A2: az ens a resolveInput reverse-resolved neve — külön mező, sosem a label.
+  const next = [...list, {
+    id, address: norm, label: label.trim() || defaultLabel(type, list), type,
+    ...(ens ? { ens } : {}), ...(ensAvatar ? { ensAvatar } : {}),
+  }];
   saveWallets(next);
   return { list: next };
 }

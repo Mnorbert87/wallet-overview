@@ -1,8 +1,11 @@
 import { motion } from "framer-motion";
 import { Overview } from "../lib/compute";
-import { HoldingsResult, NftItem } from "../lib/holdings";
 import { fmtUsd, fmtHuf, fmtDate, monthLabel, shortAddr } from "../lib/format";
 import { useT } from "../lib/i18n";
+
+// A3: a régi single-chain holdings.ts kivezetve (multichain.ts/aggregate.ts váltotta ki);
+// a galériának csak ez a minimál-típus kell.
+export interface NftItem { collection: string; tokenId: string; image: string | null; }
 
 // „A tárcád története" — megosztható narratíva a meglévő adatból (mock+élő).
 export function StoryCard({ ov, currency, isMock = false }: { ov: Overview; currency: "usd" | "huf"; isMock?: boolean }) {

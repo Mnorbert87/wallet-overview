@@ -50,7 +50,6 @@ export default function App() {
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [data, setData] = useState<Overview | null>(null);
   const [pf, setPf] = useState<Portfolio | null>(null);
-  const [ens, setEns] = useState<string | null>(null);
   const [chains, setChains] = useState<string[]>(ALL_CHAINS);
   const [pLoading, setPLoading] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -69,7 +68,8 @@ export default function App() {
         let cur = base;
         for (const part of q.split(/[\s,]+/).filter(Boolean)) {
           const r = await resolveInput(part); // ENS → cím
-          cur = addWallet(cur, r.address || part, r.ens || "").list;
+          // A2: az ens/avatar KÜLÖN mezőben tárolódik (nem csak labelként).
+          cur = addWallet(cur, r.address || part, r.ens || "", r.ens || undefined, r.avatar || undefined).list;
         }
         setWallets(cur);
       })();
@@ -132,7 +132,7 @@ export default function App() {
     for (const part of parts) {
       const r = await resolveInput(part); // ENS → cím
       const use = r.address || part;
-      const { list, error: e } = addWallet(cur, use, r.ens || "");
+      const { list, error: e } = addWallet(cur, use, r.ens || "", r.ens || undefined, r.avatar || undefined);
       if (e) lastErr = e; else { cur = list; added++; }
     }
     setWallets(cur);
@@ -147,7 +147,7 @@ export default function App() {
       const { list } = addWallet(cur, a, l);
       cur = list;
     }
-    setWallets(cur); setEns(null);
+    setWallets(cur);
   };
 
   const toggleChain = (id: string) =>
@@ -253,7 +253,7 @@ export default function App() {
         />
 
         {(data || pf || pLoading) && (
-          <Result data={data} pf={pf} pLoading={pLoading} ens={ens} primary={primary} isMock={isMock} />
+          <Result data={data} pf={pf} pLoading={pLoading} wallets={wallets} primary={primary} isMock={isMock} />
         )}
 
         {!wallets.length && !pLoading && (
@@ -268,11 +268,16 @@ export default function App() {
   );
 }
 
-function Result({ data, pf, pLoading, ens, primary, isMock }: { data: Overview | null; pf: Portfolio | null; pLoading: boolean; ens: string | null; primary: "usd" | "huf"; isMock: boolean }) {
+function Result({ data, pf, pLoading, wallets, primary, isMock }: { data: Overview | null; pf: Portfolio | null; pLoading: boolean; wallets: Wallet[]; primary: "usd" | "huf"; isMock: boolean }) {
   const t = useT();
   const cur = primary;
   const headAddr = pf?.addresses[0] || data?.address || "";
   const nAddr = pf?.addresses.length || 1;
+  // A2/B4: az ENS név + avatar a WALLET-adatból (addWallet-kor reverse-resolvolt) —
+  // nem a labelből (a nyers hex címek generikus labelt kapnak, az nem ENS).
+  const headWallet = wallets.find((w) => w.address.toLowerCase() === headAddr.toLowerCase());
+  const ens = headWallet?.ens || null;
+  const ensAvatar = headWallet?.ensAvatar || null;
   return (
     <div>
       {/* Tárca-fejléc */}
@@ -280,13 +285,21 @@ function Result({ data, pf, pLoading, ens, primary, isMock }: { data: Overview |
         initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
         className="glass rounded-2xl p-5 mb-5 flex items-center justify-between gap-4 flex-wrap"
       >
-        <div>
-          <div className="text-xs uppercase tracking-widest text-cyan-soft/70">
-            {nAddr > 1 ? t("res.walletsMerged", { n: nAddr }) : t("res.wallet")}
-          </div>
-          <div className="text-lg font-semibold font-mono">
-            {ens ? <span className="text-cyan-soft">{ens}</span> : shortAddr(headAddr)}
-            {ens && <span className="text-slate-500 text-sm ml-2">{shortAddr(headAddr)}</span>}
+        <div className="flex items-center gap-3 min-w-0">
+          {/* B4: ENS avatar (ha van) — keyless, ensdata.net-ből */}
+          {ensAvatar && (
+            <img src={ensAvatar} alt={ens || ""} referrerPolicy="no-referrer" loading="lazy"
+              className="w-10 h-10 rounded-full border border-cyan/30 object-cover shrink-0"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+          )}
+          <div>
+            <div className="text-xs uppercase tracking-widest text-cyan-soft/70">
+              {nAddr > 1 ? t("res.walletsMerged", { n: nAddr }) : t("res.wallet")}
+            </div>
+            <div className="text-lg font-semibold font-mono">
+              {ens ? <span className="text-cyan-soft">{ens}</span> : shortAddr(headAddr)}
+              {ens && <span className="text-slate-500 text-sm ml-2">{shortAddr(headAddr)}</span>}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-4">

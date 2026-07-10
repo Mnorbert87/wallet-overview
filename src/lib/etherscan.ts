@@ -141,23 +141,3 @@ export async function getTokenTxs(addr: string): Promise<{ txs: TokenTx[]; trunc
   });
   return { txs: mapToken(rows, a), truncated };
 }
-
-// Csak a legfrissebb N native tx — egy desc-lekérés, lapozás nélkül.
-// Ha egy nézetnek csak a legutóbbi tx-ek kellenek (recent-tx tábla), ez
-// olcsóbb mint a teljes callAll aggregáció újbóli végigfuttatása.
-export async function getRecentTxs(addr: string, limit = 25): Promise<{ txs: EthTx[]; unavailable: boolean }> {
-  // BUGFIX #3 [MED]: a call() 3 retry utáni perzisztens 429-e eddig FELDOBTA a hibát →
-  // az egész recent-tx tábla eltűnt. Most terminal failure → {txs:[], unavailable:true},
-  // hogy a hívó "recent tx nem elérhető"-t mutasson, NE keverje a valós "0 tranzakció"-val.
-  const a = addr.toLowerCase();
-  try {
-    const rows = await call({
-      module: "account", action: "txlist", address: addr,
-      startblock: "0", endblock: "99999999", sort: "desc",
-      page: "1", offset: String(Math.min(limit, PAGE_SIZE)),
-    });
-    return { txs: mapNormal(rows, a), unavailable: false };
-  } catch {
-    return { txs: [], unavailable: true };
-  }
-}

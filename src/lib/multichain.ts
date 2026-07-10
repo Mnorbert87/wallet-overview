@@ -174,6 +174,7 @@ export interface Portfolio {
   nfts: Nft[]; nftCount: number;
   chainErrors: string[];
   degradedChains?: string[]; // BUGFIX #1: token-lista lekérése bukott (≠ 0 holding) — "adat nem elérhető"
+  addressErrored?: boolean; // A1: MINDEN kért lánc fetch-e hibázott ÉS 0 asset → az egyenleg ismeretlen, NEM $0
   change24hPct?: number; // QUICK-WIN #5: portfólió-szintű, érték-súlyozott 24h ár-változás %
 }
 
@@ -299,14 +300,17 @@ async function usdHuf(): Promise<number> {
   } catch { return 372; }
 }
 
-async function chainAssets(addr: string, chain: Chain, factor: number): Promise<{ assets: Asset[]; nfts: Nft[]; nftCount: number; dust: number; truncated: boolean; tokensDegraded: boolean }> {
+async function chainAssets(addr: string, chain: Chain, factor: number): Promise<{ assets: Asset[]; nfts: Nft[]; nftCount: number; dust: number; truncated: boolean; tokensDegraded: boolean; accountError: boolean }> {
   // KÜLÖN hibakezelés fetch-enként (audit #5): a token-endpoint 429-e NE dobja el a
   // lánc native-egyenlegét. Az account külön try/catch-el, a token/NFT lapozók sosem
   // dobnak (részleges lap is jobb mint 0). Így egy endpoint hibája nem visz mindent.
+  // A1 [HIGH]: a retry-kimerült account-fetch hibát NEM nyeljük el némán — az
+  // accountError jel nélkül egy minden-láncon-429-ező cím fabrikált $0-ként látszana.
+  let accountError = false;
   const [acct, tokPage, nftPage] = await Promise.all([
     // #28: a native balance-fetch RETRY-vel — 1 db 429 ne dobja a lánc legértékesebb
     // eszközét (native coin). Izoláció megmarad (.catch → üres, nem blokkol).
-    jgetRetry(`${chain.host}/api/v2/addresses/${addr}`, 15000, {}, 2).catch(() => ({} as any)),
+    jgetRetry(`${chain.host}/api/v2/addresses/${addr}`, 15000, {}, 2).catch(() => { accountError = true; return {} as any; }),
     fetchAllPages(`${chain.host}/api/v2/addresses/${addr}/tokens?type=ERC-20`, 8),
     fetchAllPages(`${chain.host}/api/v2/addresses/${addr}/nft?type=ERC-721%2CERC-1155`, 6),
   ]);
@@ -357,7 +361,7 @@ async function chainAssets(addr: string, chain: Chain, factor: number): Promise<
     collection: (n.token || {}).name || "NFT", tokenId: String(n.id || "").slice(0, 8),
     image: (n.metadata || {}).image_url || (n.image_url ?? null), chain: chain.id,
   }));
-  return { assets, nfts, nftCount: nftItems.length, dust, truncated, tokensDegraded };
+  return { assets, nfts, nftCount: nftItems.length, dust, truncated, tokensDegraded, accountError };
 }
 
 export async function fetchPortfolio(addresses: string[], chainIds: string[], factorIn?: number, skipCrossCheck = false): Promise<Portfolio> {
@@ -369,7 +373,7 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
   for (const addr of addresses) for (const c of chains) {
     jobs.push(
       chainAssets(addr, c, factor).then((r) => ({ ok: true, chain: c.id, ...r }))
-        .catch(() => ({ ok: false, chain: c.id, assets: [], nfts: [], nftCount: 0, dust: 0, truncated: false, tokensDegraded: false })),
+        .catch(() => ({ ok: false, chain: c.id, assets: [], nfts: [], nftCount: 0, dust: 0, truncated: false, tokensDegraded: false, accountError: false })),
     );
   }
   const results = await Promise.all(jobs);
@@ -386,6 +390,14 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
     if (r.truncated) holdingsTruncated = true;
     if (r.tokensDegraded && !degradedChains.includes(r.chain)) degradedChains.push(r.chain);
   }
+  // A1 [HIGH]: addressErrored — a cím egyenlege ISMERETLEN, nem $0. CSAK akkor igaz,
+  // ha MINDEN kért lánc vagy dobott (!ok), vagy az account-/token-fetch hibázott, ÉS
+  // közben egyetlen asset sem jött össze. NEM csak degradedChains-re kötve: az a
+  // TOKEN-fetch hibát fedi, a native-only 429 (accountError) különben kimaradna.
+  const addressErrored =
+    results.length > 0 &&
+    results.every((r) => !r.ok || r.accountError || r.tokensDegraded) &&
+    assets.length === 0;
   // azonos (contract+chain) tételek összevonása több cím esetén
   const merged = new Map<string, Asset>();
   for (const a of assets) {
@@ -443,7 +455,7 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
     assetCount: list.length, dustFiltered, suspiciousFiltered, oversizedNativeUsd, usdHufFactor: factor, perChainUsd,
     holdingsTruncated, pricingMode,
     assets: list, unverifiedAssets: unverifiedReal.slice(0, 40), nfts: nfts.slice(0, 150), nftCount, chainErrors,
-    degradedChains, change24hPct: portfolioChange24h(verified),
+    degradedChains, addressErrored, change24hPct: portfolioChange24h(verified),
   };
 }
 
@@ -484,15 +496,23 @@ export async function crossCheckCoinGecko(assets: Asset[], factor: number): Prom
 }
 
 // ENS → cím feloldás (keyless, ensdata.net). Cím-visszafelé is: cím → ens név.
-export async function resolveInput(raw: string): Promise<{ address: string | null; ens: string | null }> {
+// A2: az `ens` a REVERSE-RESOLVED primary név (ens_primary elsőbbséggel) — sosem
+// user-label. B4: az ENS avatar URL-t is visszaadjuk (ha van), a UI kirajzolja.
+export async function resolveInput(raw: string): Promise<{ address: string | null; ens: string | null; avatar: string | null }> {
   const s = raw.trim();
   if (/^0x[a-fA-F0-9]{40}$/.test(s)) {
-    try { const d = await jget(`https://api.ensdata.net/${s}`, 6000); return { address: s, ens: d.ens || d.name || null }; }
-    catch { return { address: s, ens: null }; }
+    try {
+      const d = await jget(`https://api.ensdata.net/${s}`, 6000);
+      return { address: s, ens: d.ens_primary || d.ens || null, avatar: d.avatar_url || d.avatar || null };
+    }
+    catch { return { address: s, ens: null, avatar: null }; }
   }
   if (/\.eth$/i.test(s)) {
-    try { const d = await jget(`https://api.ensdata.net/${s}`, 6000); return { address: (d.address || null), ens: s }; }
-    catch { return { address: null, ens: s }; }
+    try {
+      const d = await jget(`https://api.ensdata.net/${s}`, 6000);
+      return { address: (d.address || null), ens: s, avatar: d.avatar_url || d.avatar || null };
+    }
+    catch { return { address: null, ens: s, avatar: null }; }
   }
-  return { address: null, ens: null };
+  return { address: null, ens: null, avatar: null };
 }

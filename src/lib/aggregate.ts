@@ -36,6 +36,10 @@ export async function fetchWatchlist(wallets: Wallet[], evmChains: string[]): Pr
       // #WO-9: a per-wallet fetch NEM futtat külön CG kereszt-ellenőrzést (skipCrossCheck),
       // hogy ne legyen N külön batch (N×429-kockázat). EGY merged batch fut lentebb.
       const p = await fetchPortfolio([w.address], evmChains, factor, true);
+      // A1 [HIGH]: minden kért lánc fetch-e hibázott + 0 asset → az EVM cím egyenlege
+      // ISMERETLEN. A walletsErrored-be kerül (mint a SOL/BTC), így a Watchlist a
+      // "hiba" állapotot rendereli, NEM egy fabrikált $0-t.
+      if (p.addressErrored) walletsErrored.add(w.address);
       if (p.pricingMode === "coingecko") pricingMode = "coingecko";
       if (p.holdingsTruncated) holdingsTruncated = true;
       dustFiltered += p.dustFiltered;
@@ -54,6 +58,9 @@ export async function fetchWatchlist(wallets: Wallet[], evmChains: string[]): Pr
     jobs.push((async () => {
       const r = await fetchSolana(w.address, factor);
       if (r.error) { walletsErrored.add(w.address); if (!chainErrors.includes("sol")) chainErrors.push("sol"); }
+      // A5 [MED]: keyless RPC-n az SPL-lekérés blokkolt (csak native SOL jön) — ezt
+      // a UI-nak JELEZNI kell (degraded), nem csendben üres SPL-listát mutatni.
+      if (!r.error && r.splLimited && !degradedChains.includes("sol")) degradedChains.push("sol");
       for (const a of r.assets) allAssets.push(Object.assign(a, { _w: w.address }));
     })());
   }

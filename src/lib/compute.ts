@@ -21,7 +21,8 @@ export interface TxRow {
 }
 
 export interface Overview {
-  address: string;
+  address: string;       // első cím (fejléc-fallback + CSV-fájlnév)
+  addresses: string[];   // B1: az összes aggregált EVM cím
   txCount: number;
   tokenTxCount: number;
   firstTx: number;
@@ -40,13 +41,22 @@ export interface Overview {
   txTruncated: boolean; // #WO-1: a tx-előzmény csonka (lapozás-cap / hiba) → gas + cashflow alábecsülhet
 }
 
-export async function buildOverview(address: string): Promise<Overview> {
-  const addr = address.toLowerCase();
-  const [normalRes, tokenRes] = await Promise.all([getNormalTxs(addr), getTokenTxs(addr)]);
-  const normal = normalRes.txs, tokens = tokenRes.txs;
-  const txTruncated = normalRes.truncated || tokenRes.truncated; // #WO-1
+// B1: az aktivitás/gas/cashflow MINDEN EVM címre aggregál (nem csak az elsőre),
+// hogy a gas-hero és a cashflow ugyanazt az összevont portfóliót tükrözze, mint a
+// holdings-panel. Címenként SZEKVENCIÁLIS fetch (Etherscan free-tier rate-limit),
+// címen belül parallel (txlist + tokentx).
+export async function buildOverview(addresses: string[]): Promise<Overview> {
+  const addrs = [...new Set(addresses.map((a) => a.toLowerCase()))];
+  const watched = new Set(addrs);
+  const perAddr: { addr: string; normal: EthTx[]; tokens: TokenTx[] }[] = [];
+  let txTruncated = false; // #WO-1
+  for (const a of addrs) {
+    const [normalRes, tokenRes] = await Promise.all([getNormalTxs(a), getTokenTxs(a)]);
+    perAddr.push({ addr: a, normal: normalRes.txs, tokens: tokenRes.txs });
+    if (normalRes.truncated || tokenRes.truncated) txTruncated = true;
+  }
 
-  const allSecs = [...normal.map((t) => t.timeStamp), ...tokens.map((t) => t.timeStamp)];
+  const allSecs = perAddr.flatMap((p) => [...p.normal.map((t) => t.timeStamp), ...p.tokens.map((t) => t.timeStamp)]);
   const firstTx = allSecs.length ? Math.min(...allSecs) : Math.floor(Date.now() / 1000);
   const lastTx = allSecs.length ? Math.max(...allSecs) : firstTx;
 
@@ -71,45 +81,69 @@ export async function buildOverview(address: string): Promise<Overview> {
     monthMap.set(ym, m);
   };
 
-  for (const t of normal) {
-    const ym = new Date(t.timeStamp * 1000).toISOString().slice(0, 7);
-    monthCount.set(ym, (monthCount.get(ym) || 0) + 1);
-    const cp = t.isOutgoing ? t.to : t.from;
-    if (cp && cp !== addr) cpCount.set(cp, (cpCount.get(cp) || 0) + 1);
-    const p = priceAt(pmap, t.timeStamp);
-    // gas: csak a wallet által küldött tx-en (a küldő fizeti)
-    let gasUsd = 0, gasHuf = 0;
-    if (t.isOutgoing) {
-      const gasEth = Number(t.gasUsed * t.gasPrice) / WEI;
-      gas.eth += gasEth; gasUsd = gasEth * p.usd; gasHuf = gasEth * p.huf;
-      gas.usd += gasUsd; gas.huf += gasHuf;
-    }
-    const valEth = Number(t.valueWei) / WEI;
-    const usd = valEth * p.usd, huf = valEth * p.huf;
-    if (valEth > 0) {
-      if (t.isOutgoing) { outflow.eth += valEth; outflow.usd += usd; outflow.huf += huf; bump(ym, "out", usd, huf); }
-      else { inflow.eth += valEth; inflow.usd += usd; inflow.huf += huf; bump(ym, "in", usd, huf); }
-    }
-    if (valEth > 0 || t.isOutgoing) {
-      rows.push({
-        hash: t.hash, timeStamp: t.timeStamp, kind: "ETH",
-        direction: t.isOutgoing ? "out" : "in", amount: valEth,
-        usd, huf, gasUsd, gasHuf, failed: t.isError, whale: false,
-      });
+  // B1: cross-wallet dedup. Ugyanaz a tx-hash a KÜLDŐ és a FOGADÓ listájában is
+  // megjelenik, ha mindkét cím figyelt → txCount/monthCount hash-enként EGYSZER számol.
+  // A gas nem duplázódhat (csak isOutgoing-on fut, egy tx-nek egy küldője van).
+  const seenNormal = new Set<string>();
+  let normalCount = 0;
+  for (const { addr, normal } of perAddr) {
+    for (const t of normal) {
+      const firstSeen = !seenNormal.has(t.hash);
+      if (firstSeen) { seenNormal.add(t.hash); normalCount++; }
+      const ym = new Date(t.timeStamp * 1000).toISOString().slice(0, 7);
+      if (firstSeen) monthCount.set(ym, (monthCount.get(ym) || 0) + 1);
+      const cp = t.isOutgoing ? t.to : t.from;
+      // B1: figyelt cím nem "partner" — a belső mozgás nem counterparty.
+      if (cp && cp !== addr && !watched.has(cp)) cpCount.set(cp, (cpCount.get(cp) || 0) + 1);
+      const p = priceAt(pmap, t.timeStamp);
+      // gas: csak a wallet által küldött tx-en (a küldő fizeti)
+      let gasUsd = 0, gasHuf = 0;
+      if (t.isOutgoing) {
+        const gasEth = Number(t.gasUsed * t.gasPrice) / WEI;
+        gas.eth += gasEth; gasUsd = gasEth * p.usd; gasHuf = gasEth * p.huf;
+        gas.usd += gasUsd; gas.huf += gasHuf;
+      }
+      const valEth = Number(t.valueWei) / WEI;
+      const usd = valEth * p.usd, huf = valEth * p.huf;
+      // B1: BELSŐ transzfer (figyelt → figyelt) NEM inflow/outflow — az összevont
+      // portfólió szintjén nem pénzmozgás, csak átrendezés; különben mindkét
+      // metrikát azonos összeggel inflálná. A gas természetesen marad.
+      const internal = watched.has(t.from) && watched.has(t.to);
+      if (valEth > 0 && !internal) {
+        if (t.isOutgoing) { outflow.eth += valEth; outflow.usd += usd; outflow.huf += huf; bump(ym, "out", usd, huf); }
+        else { inflow.eth += valEth; inflow.usd += usd; inflow.huf += huf; bump(ym, "in", usd, huf); }
+      }
+      if (valEth > 0 || t.isOutgoing) {
+        rows.push({
+          hash: t.hash, timeStamp: t.timeStamp, kind: "ETH",
+          direction: t.isOutgoing ? "out" : "in", amount: valEth,
+          usd, huf, gasUsd, gasHuf, failed: t.isError, whale: false,
+        });
+      }
     }
   }
 
-  for (const t of tokens) {
-    // #WO-7: NEM növeljük itt a monthCount-ot — a "legaktívabb hónap" a headline txCount-tal
-    // (normal.length) KONZISZTENS, csak normal-tx-eket számol. Egy normal-tx több token-
-    // transfer-eventet emittálhat, így a blend félrevezetően a tx-számnál nagyobbat adna.
-    // Token USD/HUF értékelés = 2. kör (per-token CoinGecko id kell); MVP-ben az
-    // ÖSSZEGET ETH-ben nem keverjük, a sorban a token-mennyiség jelenik meg.
-    rows.push({
-      hash: t.hash, timeStamp: t.timeStamp, kind: t.symbol,
-      direction: t.isOutgoing ? "out" : "in", amount: t.amount,
-      usd: 0, huf: 0, gasUsd: 0, gasHuf: 0, failed: false, whale: false,
-    });
+  // B1: token-transzfer dedup kulcs — ugyanaz a transfer-event a küldő ÉS a fogadó
+  // tokentx-listájában is szerepel, ha mindkettő figyelt.
+  const seenToken = new Set<string>();
+  let tokenCount = 0;
+  const tokenSymbolSet = new Set<string>();
+  for (const { tokens } of perAddr) {
+    for (const t of tokens) {
+      const k = `${t.hash}:${t.contract}:${t.from}:${t.to}:${t.amount}`;
+      if (!seenToken.has(k)) { seenToken.add(k); tokenCount++; }
+      tokenSymbolSet.add(t.symbol);
+      // #WO-7: NEM növeljük itt a monthCount-ot — a "legaktívabb hónap" a headline txCount-tal
+      // KONZISZTENS, csak normal-tx-eket számol. Egy normal-tx több token-
+      // transfer-eventet emittálhat, így a blend félrevezetően a tx-számnál nagyobbat adna.
+      // Token USD/HUF értékelés = 2. kör (per-token CoinGecko id kell); MVP-ben az
+      // ÖSSZEGET ETH-ben nem keverjük, a sorban a token-mennyiség jelenik meg.
+      rows.push({
+        hash: t.hash, timeStamp: t.timeStamp, kind: t.symbol,
+        direction: t.isOutgoing ? "out" : "in", amount: t.amount,
+        usd: 0, huf: 0, gasUsd: 0, gasHuf: 0, failed: false, whale: false,
+      });
+    }
   }
 
   rows.sort((a, b) => b.timeStamp - a.timeStamp);
@@ -133,9 +167,10 @@ export async function buildOverview(address: string): Promise<Overview> {
   const balanceEth = inflow.eth - outflow.eth - gas.eth;
 
   return {
-    address: addr,
-    txCount: normal.length,
-    tokenTxCount: tokens.length,
+    address: addrs[0] || "",
+    addresses: addrs,
+    txCount: normalCount,
+    tokenTxCount: tokenCount,
     firstTx, lastTx,
     gas, inflow, outflow,
     balanceEth,
@@ -143,7 +178,7 @@ export async function buildOverview(address: string): Promise<Overview> {
     monthly,
     mostActiveMonth: most,
     txRows: rows.slice(0, 200),
-    tokenSymbols: [...new Set(tokens.map((t) => t.symbol))].slice(0, 12),
+    tokenSymbols: [...tokenSymbolSet].slice(0, 12),
     counterparties: [...cpCount.entries()]
       .map(([address, count]) => ({ address, count }))
       .sort((a, b) => b.count - a.count)

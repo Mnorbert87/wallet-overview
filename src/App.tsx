@@ -103,13 +103,15 @@ export default function App() {
     return () => { cancelled = true; };
   }, [wallets, chains]);
 
-  // Az aktivitás/gas oldal az első EVM tárcára (Etherscan; kulcs nélkül mock).
+  // B1: az aktivitás/gas oldal MINDEN EVM tárcára aggregál (Etherscan; kulcs nélkül
+  // mock) — így a gas-hero és a cashflow ugyanazt az összevont portfóliót tükrözi,
+  // mint a holdings-panel.
   useEffect(() => {
-    const firstEvm = wallets.find((w) => w.type === "evm");
-    if (!firstEvm) { setData(null); return; }
+    const evmAddrs = wallets.filter((w) => w.type === "evm").map((w) => w.address);
+    if (!evmAddrs.length) { setData(null); return; }
     let cancelled = false;
     setLoading(true);
-    buildOverview(firstEvm.address)
+    buildOverview(evmAddrs)
       .then((d) => { if (!cancelled) { setData(d); setIsMock(false); } })
       .catch(() => { if (!cancelled && !HAS_KEY) { setData(mockOverview()); setIsMock(true); } })
       .finally(() => { if (!cancelled) setLoading(false); });

@@ -39,6 +39,7 @@ export function mockOverview(): Overview {
   const gasUsd = 214.3, gasEth = 0.121;
   return {
     address: "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+    addresses: ["0xd8da6bf26964af9d7eed9e03e53415d37aa96045"],
     txCount: 342, tokenTxCount: 128,
     firstTx: Math.floor(new Date("2021-03-11T09:00:00Z").getTime() / 1000),
     lastTx: Math.floor(new Date("2026-06-28T12:00:00Z").getTime() / 1000),

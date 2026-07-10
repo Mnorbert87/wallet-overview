@@ -11,10 +11,11 @@ const TYPE_META: Record<string, { label: string; color: string }> = {
 };
 
 export function Watchlist({
-  wallets, perWalletUsd, hufFactor, currency, onAdd, onRemove, onRename,
+  wallets, perWalletUsd, walletsWithAssets, hufFactor, currency, onAdd, onRemove, onRename,
 }: {
   wallets: Wallet[];
   perWalletUsd?: Record<string, number>;
+  walletsWithAssets?: string[];
   hufFactor: number;
   currency: "usd" | "huf";
   onAdd: (address: string, label: string) => string | undefined; // error v. undefined
@@ -60,6 +61,7 @@ export function Watchlist({
         <div className="space-y-1.5">
           {wallets.map((w) => {
             const t = TYPE_META[w.type];
+            if (!t) return null; // #WO-3: defense-in-depth — ismeretlen típus ne dobja le a rendert
             const usd = perWalletUsd?.[w.address];
             return (
               <div key={w.id} className="flex items-center justify-between gap-2 text-sm py-1.5 border-b border-white/[0.04] last:border-0">
@@ -79,9 +81,12 @@ export function Watchlist({
                   <span className="text-slate-600 text-xs font-mono truncate">{shortAddr(w.address)}</span>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  {usd !== undefined && (
+                  {/* #WO-8: három állapot — árazott érték / "ár n/a" (van eszköz, nincs verified ár) / rejtve amíg tölt */}
+                  {usd !== undefined ? (
                     <span className="text-slate-300">{currency === "usd" ? fmtUsd(usd) : fmtHuf(usd * hufFactor)}</span>
-                  )}
+                  ) : walletsWithAssets?.includes(w.address) ? (
+                    <span className="text-amber-400/70 text-xs" title={tr("wl.priceNaTip")}>{tr("wl.priceNa")}</span>
+                  ) : null}
                   <button onClick={() => onRemove(w.id)} aria-label={tr("wl.remove")} className="text-slate-600 hover:text-red-400 transition-colors text-xs no-print" title={tr("wl.remove")}>✕</button>
                 </div>
               </div>

@@ -44,17 +44,21 @@ export function PortfolioPanel({ p, currency }: { p: Portfolio; currency: "usd" 
 
       {/* Per-lánc allokáció-sáv */}
       <div className="flex rounded-lg overflow-hidden h-2.5 mb-2">
-        {chainRows.map(([id, v]) => (
-          <div key={id} style={{ width: `${(v / p.totalUsd) * 100}%`, background: chainMeta(id)?.color || "#64748b" }} title={`${chainMeta(id)?.name}: ${fmtUsd(v)}`} />
-        ))}
+        {chainRows.map(([id, v]) => {
+          const pct = p.totalUsd ? (v / p.totalUsd) * 100 : 0; // #WO-10: 0-guard a NaN% ellen
+          return <div key={id} style={{ width: `${pct}%`, background: chainMeta(id)?.color || "#64748b" }} title={`${chainMeta(id)?.name}: ${fmtUsd(v)}`} />;
+        })}
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 mb-5 text-xs">
-        {chainRows.map(([id, v]) => (
-          <span key={id} className="flex items-center gap-1.5 text-slate-400">
-            <span className="w-2 h-2 rounded-sm" style={{ background: chainMeta(id)?.color }} />
-            {chainMeta(id)?.name} · {((v / p.totalUsd) * 100).toFixed(0)}%
-          </span>
-        ))}
+        {chainRows.map(([id, v]) => {
+          const pct = p.totalUsd ? (v / p.totalUsd) * 100 : 0; // #WO-10: 0-guard a NaN% ellen
+          return (
+            <span key={id} className="flex items-center gap-1.5 text-slate-400">
+              <span className="w-2 h-2 rounded-sm" style={{ background: chainMeta(id)?.color }} />
+              {chainMeta(id)?.name} · {pct.toFixed(0)}%
+            </span>
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
@@ -79,6 +83,7 @@ export function PortfolioPanel({ p, currency }: { p: Portfolio; currency: "usd" 
                 <span className="text-slate-200 font-medium">{a.symbol}</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ background: `${a.chainColor}22`, color: a.chainColor }}>{a.chainName}</span>
                 {!a.verified && <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0 bg-amber-400/10 text-amber-400/80" title={t("pf.priceUnverifiedTip")}>{t("pf.priceUnverified")}</span>}
+                {a.oversized && <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0 bg-amber-400/15 text-amber-300/90" title={t("pf.oversizedTip")}>⚠ {t("pf.oversizedBadge")}</span>}
                 <span className="text-slate-500 text-xs truncate">{a.amount.toLocaleString("en-US", { maximumFractionDigits: 4 })}</span>
               </div>
               <div className="text-right shrink-0">
@@ -100,6 +105,9 @@ export function PortfolioPanel({ p, currency }: { p: Portfolio; currency: "usd" 
           {t("pf.coverage", { covered: verifiedAssets.length, total: p.assets.length, uncovered: fmt(uncoveredVal) })}
           {" "}{t("pf.cgHint")}
         </div>
+      )}
+      {p.holdingsTruncated && (
+        <p className="text-[11px] text-amber-400/70 mt-2">{t("pf.truncated")}</p>
       )}
       {(unverifiedInList > 0 || p.suspiciousFiltered > 0) && (
         <p className="text-[11px] text-slate-500 mt-2">

@@ -4,7 +4,32 @@ import { Asset } from "./multichain";
 
 const MEMPOOL = "https://mempool.space/api";
 const CG = "https://api.coingecko.com/api/v3";
+const CG_KEY = (import.meta.env.VITE_COINGECKO_KEY as string) || "";
 const CHAIN_COLOR = "#f7931a";
+
+// CoinGecko Demo-kulcs MINDIG header-ben (soha URL query-ben: Referer/history-leak).
+function cgHeaders(): Record<string, string> {
+  return CG_KEY ? { "x-cg-demo-api-key": CG_KEY } : {};
+}
+
+// #WO-1: a BTC ár retry+backoff-fal (mint az EVM native/mempool-account). Egy tranziens
+// 429/timeout NE dobja csendben a portfólió LEGNAGYOBB egyeszközös pozícióját a totálból.
+async function priceRetry(url: string, ms: number, retries = 2): Promise<any> {
+  const headers = { Accept: "application/json", ...cgHeaders() };
+  let lastErr: unknown;
+  for (let i = 0; ; i++) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    try {
+      const r = await fetch(url, { headers, signal: ctrl.signal });
+      if (r.ok) return await r.json();
+      if (r.status !== 429 && r.status < 500) throw new Error(`CG ${r.status}`);
+      lastErr = new Error(`CG ${r.status}`);
+    } catch (e) { lastErr = e; } finally { clearTimeout(t); }
+    if (i >= retries) throw lastErr;
+    await new Promise((res) => setTimeout(res, 500 * (i + 1)));
+  }
+}
 
 // #19: mempool account-fetch retry-vel (1 db 429 ne ürítse ki a BTC-láncot).
 async function mempoolAccount(addr: string): Promise<any> {
@@ -23,11 +48,10 @@ async function mempoolAccount(addr: string): Promise<any> {
 
 export async function fetchBitcoin(addr: string, factor: number): Promise<{ assets: Asset[]; error?: boolean }> {
   try {
-    const [acct, priceR] = await Promise.all([
+    const [acct, price] = await Promise.all([
       mempoolAccount(addr),
-      fetch(`${CG}/simple/price?ids=bitcoin&vs_currencies=usd`).catch(() => null),
+      priceRetry(`${CG}/simple/price?ids=bitcoin&vs_currencies=usd`, 8000, 2).catch(() => ({} as any)),
     ]);
-    const price = priceR && priceR.ok ? await priceR.json() : {};
     const btcUsd = price.bitcoin?.usd || 0;
 
     const cs = acct.chain_stats || {};

@@ -1,16 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { motion } from "framer-motion";
 import { buildOverview, Overview } from "./lib/compute";
 import { resolveInput, Portfolio, CHAINS } from "./lib/multichain";
 import { fetchWatchlist } from "./lib/aggregate";
 import { Wallet, loadWallets, addWallet, removeWallet, renameWallet } from "./lib/wallets";
 import { mockOverview } from "./lib/mock";
-import { isEthAddress, shortAddr, fmtDate, monthLabel, fmtEth } from "./lib/format";
+import { shortAddr, fmtDate, monthLabel, fmtEth } from "./lib/format";
 import { MetricCard, InfoCard } from "./components/MetricCard";
-import { CashflowChart } from "./components/CashflowChart";
 import { TxTable } from "./components/TxTable";
-import { PortfolioPanel } from "./components/PortfolioPanel";
 import { Watchlist } from "./components/Watchlist";
+// #WO-5: a recharts-nehéz paneleket lazy-töltjük → a ~534KB charts-chunk NEM az első
+// festés kritikus útján van (Suspense fallback azonnal látszik, a lista alatt tölt).
+const CashflowChart = lazy(() => import("./components/CashflowChart").then((m) => ({ default: m.CashflowChart })));
+const PortfolioPanel = lazy(() => import("./components/PortfolioPanel").then((m) => ({ default: m.PortfolioPanel })));
 import { StoryCard, Counterparties, NftGallery, ApprovalsPanel } from "./components/Extras";
 import { useT, useLang, setLang, EN_ONLY, Lang } from "./lib/i18n";
 
@@ -40,7 +42,7 @@ const ALL_CHAINS = CHAINS.map((c) => c.id);
 
 const DEMO = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"; // vitalik.eth
 const DEMO_SOL = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU";
-const DEMO_BTC = "bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97";
+const DEMO_BTC = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"; // szerény, valós, aktív cím (~0.2 BTC) — nem whale, hogy a demo első benyomása épeszű total legyen
 
 export default function App() {
   const t = useT();
@@ -216,6 +218,7 @@ export default function App() {
         <Watchlist
           wallets={wallets}
           perWalletUsd={pf?.perWalletUsd}
+          walletsWithAssets={pf?.walletsWithAssets}
           hufFactor={pf?.usdHufFactor ?? 372}
           currency={primary}
           onAdd={addToWatchlist}
@@ -275,8 +278,24 @@ function Result({ data, pf, pLoading, ens, primary, isMock }: { data: Overview |
         </div>
       </motion.div>
 
+      {/* NATIVE-CAP jelzés: valós, de szokatlanul nagy native-egyenleg a totálban —
+          nem fabrikált (nem mock), de nem is jelöletlen milliárdos "igazság". */}
+      {pf && pf.oversizedNativeUsd > 0 && (
+        <div className="glass rounded-xl p-3 mb-5 text-xs text-amber-300/90 border-l-2 border-amber-400/60">
+          {t("pf.oversizedNative", {
+            v: cur === "usd"
+              ? `$${Math.round(pf.oversizedNativeUsd).toLocaleString("en-US")}`
+              : `${Math.round(pf.oversizedNativeUsd * (pf.usdHufFactor || 372)).toLocaleString("hu-HU")} Ft`,
+          })}
+        </div>
+      )}
+
       {/* FLAGSHIP — multichain + multi-cím portfólió (kulcs nélkül, valós) */}
-      {pf && <PortfolioPanel p={pf} currency={cur} />}
+      {pf && (
+        <Suspense fallback={<div className="glass rounded-2xl p-5 mb-6 text-sm text-slate-400 animate-pulse">{t("pf.loading")}</div>}>
+          <PortfolioPanel p={pf} currency={cur} />
+        </Suspense>
+      )}
       {!pf && pLoading && (
         <div className="glass rounded-2xl p-5 mb-6 text-sm text-slate-400 animate-pulse">
           {t("pf.loading")}
@@ -323,7 +342,9 @@ function Result({ data, pf, pLoading, ens, primary, isMock }: { data: Overview |
                 <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-500 inline-block" /> {t("cf.sent")}</span>
               </div>
             </div>
-            <CashflowChart data={data.monthly} currency={cur} />
+            <Suspense fallback={<div className="h-48 animate-pulse" />}>
+              <CashflowChart data={data.monthly} currency={cur} />
+            </Suspense>
           </div>
 
           <Counterparties ov={data} />

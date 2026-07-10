@@ -27,8 +27,8 @@ export function mockPortfolio(addr: string): Portfolio {
   assets.sort((x, y) => y.valueUsd - x.valueUsd);
   return {
     addresses: [addr], chains: ["eth", "base", "arbitrum", "polygon", "gnosis"],
-    totalUsd, totalHuf: totalUsd * F, assetCount: assets.length, dustFiltered: 7, suspiciousFiltered: 0,
-    usdHufFactor: F, perChainUsd, pricingMode: "allowlist" as const, assets,
+    totalUsd, totalHuf: totalUsd * F, assetCount: assets.length, dustFiltered: 7, suspiciousFiltered: 0, oversizedNativeUsd: 0,
+    usdHufFactor: F, perChainUsd, holdingsTruncated: false, pricingMode: "allowlist" as const, assets,
     unverifiedAssets: [], nfts: [], nftCount: 0, chainErrors: [],
   };
 }

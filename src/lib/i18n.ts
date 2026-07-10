@@ -45,7 +45,7 @@ const DICT: Record<string, [string, string]> = {
   "res.wallet": ["Tárca", "Wallet"],
   "res.totalValue": ["Portfólió összérték (multichain)", "Total portfolio value (multichain)"],
   "btn.print": ["PDF / Nyomtatás", "PDF / Print"],
-  "pf.loading": ["Multichain portfólió betöltése (Blockscout, 5 lánc)…", "Loading multichain portfolio (Blockscout, 5 chains)…"],
+  "pf.loading": ["Multichain portfólió betöltése (Blockscout, 6 lánc)…", "Loading multichain portfolio (Blockscout, 6 chains)…"],
   "pf.title": ["Portfólió — {n} eszköz, {c} lánc", "Portfolio — {n} assets, {c} chains"],
   "pf.priceSrc": ["ár-forrás", "price source"],
   "pf.src.coingecko": ["CoinGecko (teljes)", "CoinGecko (full)"],
@@ -61,6 +61,13 @@ const DICT: Record<string, [string, string]> = {
                         "≈ {n} tokens' price could not be reliably verified (amount is real, but NOT counted in the portfolio value)."],
   "pf.cgHint": ["Saját ingyenes CoinGecko-kulccsal ezek is pontosan árazódnak.", "With your own free CoinGecko key these are priced accurately too."],
   "pf.suspicious": ["{n} gyanús (hamis-árú) token kiszűrve.", "{n} suspicious (fake-price) tokens filtered out."],
+  "pf.oversizedNative": ["⚠ Szokatlanul nagy native-egyenleg ({v}) van az összegben — valós on-chain adat, de ellenőrizd (whale / csere-hidegtárca / esetleges elszámolási hiba).",
+                         "⚠ An unusually large native balance ({v}) is included in this total — it is real on-chain data, but verify it (whale / exchange cold wallet / possible accounting anomaly)."],
+  "pf.oversizedBadge": ["ellenőrizd", "verify"],
+  "pf.oversizedTip": ["Szokatlanul nagy egyenleg — valós lánc-adat, de érdemes ellenőrizni.",
+                      "Unusually large balance — real chain data, but worth verifying."],
+  "pf.truncated": ["⚠ A holdings-lista csonkítva lehet (nagyon sok token/NFT a lapozás-limit felett) — a total ennek egy részét nem tartalmazza.",
+                   "⚠ Holdings list may be truncated (very many tokens/NFTs beyond the page limit) — the total may omit some of it."],
   "pf.csv": ["CSV export", "CSV export"],
   "nft.title": ["NFT-galéria", "NFT gallery"],
   "nft.count": ["{n} NFT", "{n} NFTs"],
@@ -124,6 +131,9 @@ const DICT: Record<string, [string, string]> = {
                "Add one or more addresses (ETH/SOL/BTC) — all shown in one combined portfolio at live prices."],
   "wl.rename": ["Átnevezés", "Rename"],
   "wl.remove": ["Törlés", "Remove"],
+  "wl.priceNa": ["ár n/a", "price n/a"],
+  "wl.priceNaTip": ["A tárcának van eszköze, de az ár most nem igazolható (kulcs nélkül / rate-limit) — nem a totálban.",
+                    "Wallet holds assets, but the price can't be verified now (keyless / rate-limit) — not in the total."],
 };
 
 export function t(key: string, vars?: Record<string, string | number>): string {

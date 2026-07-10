@@ -21,7 +21,13 @@ export function loadWallets(): Wallet[] {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [];
     const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr.filter((w) => w && w.address && w.type) : [];
+    // #WO-3: a `type`-ot WHITELIST-elni kell (evm|sol|btc). Egy korrupt/legacy/kézzel
+    // szerkesztett localStorage-bejegyzés (pl. type:"eth") különben átcsúszik és a
+    // Watchlist TYPE_META[type]=undefined dereference-en az EGÉSZ appot ledobja (nincs
+    // error boundary). A whitelist önmagában megszünteti a crash-on-load-ot.
+    return Array.isArray(arr)
+      ? arr.filter((w) => w && w.address && (w.type === "evm" || w.type === "sol" || w.type === "btc"))
+      : [];
   } catch { return []; }
 }
 

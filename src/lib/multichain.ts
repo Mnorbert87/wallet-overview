@@ -8,6 +8,7 @@ export const CHAINS: Chain[] = [
   { id: "eth", name: "Ethereum", host: "https://eth.blockscout.com", native: "ETH", color: "#627eea" },
   { id: "base", name: "Base", host: "https://base.blockscout.com", native: "ETH", color: "#0052ff" },
   { id: "arbitrum", name: "Arbitrum", host: "https://arbitrum.blockscout.com", native: "ETH", color: "#28a0f0" },
+  { id: "optimism", name: "Optimism", host: "https://optimism.blockscout.com", native: "ETH", color: "#ff0420" },
   { id: "polygon", name: "Polygon", host: "https://polygon.blockscout.com", native: "POL", color: "#8247e5" },
   { id: "gnosis", name: "Gnosis", host: "https://gnosis.blockscout.com", native: "xDAI", color: "#3e6957" },
 ];
@@ -71,6 +72,7 @@ const CANONICAL_RAW: Record<string, Partial<Record<string, string>>> = {
     eth: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
     base: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
     arbitrum: "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+    optimism: "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
     polygon: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
     gnosis: "0x2a22f9c3b484c3629090feed35f17ff8f88f76f0",
   },
@@ -78,6 +80,7 @@ const CANONICAL_RAW: Record<string, Partial<Record<string, string>>> = {
     eth: "0xdac17f958d2ee523a2206206994597c13d831ec7",
     base: "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
     arbitrum: "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
+    optimism: "0x94b008aa00579c1307b0ef2c499ad98a8ce58e58",
     polygon: "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
     gnosis: "0x4ecaba5870353805a9f068101a40e0f32ed605c6",
   },
@@ -85,18 +88,21 @@ const CANONICAL_RAW: Record<string, Partial<Record<string, string>>> = {
     eth: "0x6b175474e89094c44da98b954eedeac495271d0f",
     base: "0x50c5725949a6f0c72e6c4a641f24049a917db0cb",
     arbitrum: "0xda10009cbd5d07dd0cef1f9df3a7b4e5c1cb2782",
+    optimism: "0xda10009cbd5d07dd0cef1f9df3a7b4e5c1cb2782",
     polygon: "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",
   },
   WETH: {
     eth: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
     base: "0x4200000000000000000000000000000000000006",
     arbitrum: "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+    optimism: "0x4200000000000000000000000000000000000006",
     polygon: "0x7ceb23fd6bc0add59e62ac25578270cff1b9f619",
     gnosis: "0x6a023ccd1ff6f2045c3309768ead9e68f978f6e1",
   },
   WBTC: {
     eth: "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
     arbitrum: "0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f",
+    optimism: "0x68f180fcce6836688e9084f035309e29bf0a2095",
     polygon: "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6",
     gnosis: "0x8e5bbbb09ed1ebde8674cda39a0c169401db4252",
   },
@@ -136,21 +142,25 @@ export function capOk(a: Asset): boolean {
 /** CoinGecko platform-slug a token_price kereszt-ellenőrzéshez. */
 const CG_PLATFORM: Record<string, string> = {
   eth: "ethereum", base: "base", arbitrum: "arbitrum-one",
-  polygon: "polygon-pos", gnosis: "xdai",
+  optimism: "optimistic-ethereum", polygon: "polygon-pos", gnosis: "xdai",
 };
 
 export interface Asset {
   symbol: string; name: string; contract: string; chain: string; chainName: string; chainColor: string;
   amount: number; priceUsd: number; valueUsd: number; valueHuf: number; allocationPct: number;
   verified: boolean; // az ár megbízható forrásból (allowlist v. CoinGecko)
+  oversized?: boolean; // native coin, valós ár, DE > sanity cap → "szokatlanul nagy, ellenőrizd"
 }
 export interface Nft { collection: string; tokenId: string; image: string | null; chain: string; }
 export interface Portfolio {
   addresses: string[]; chains: string[];
   totalUsd: number; totalHuf: number; assetCount: number; dustFiltered: number;
   suspiciousFiltered: number; // hamis-árú (nem-verified, > sanity cap) — kiszűrve
+  oversizedNativeUsd: number; // native coinok (BTC/ETH/SOL) valós, DE > sanity cap USD összértéke a totálban → "ellenőrizd" jelzés
   usdHufFactor: number; perChainUsd: Record<string, number>;
+  holdingsTruncated: boolean; // #WO-6: elértük a lapozás-cap-et → a lista csonkítva lehet
   perWalletUsd?: Record<string, number>; // cím → verified USD (per-tárca bontás)
+  walletsWithAssets?: string[]; // #WO-8: van eszköze (akár unverified) — "ár n/a" vs "$0" megkülönböztetés
   pricingMode: "coingecko" | "allowlist"; // hogyan ellenőriztük az árat
   assets: Asset[];           // MINDEN valódi (nem-spam) token — verified + best-effort
   unverifiedAssets: Asset[]; // nem ellenőrzött árú tokenek (a listában látszanak, NEM a totálban)
@@ -195,7 +205,7 @@ async function jgetRetry(url: string, ms: number, headers: Record<string, string
 
 // Blockscout v2 lapozás: next_page_params-ot query-vé fűzve, cap oldalig. Sosem dob
 // (részleges lap is jobb mint 0): egy oldal-hiba → az addig gyűjtött itemekkel tér vissza.
-async function fetchAllPages(baseUrl: string, cap = 8): Promise<any[]> {
+async function fetchAllPages(baseUrl: string, cap = 8): Promise<{ items: any[]; truncated: boolean }> {
   const items: any[] = [];
   let params: Record<string, any> | null = null;
   for (let page = 0; page < cap; page++) {
@@ -211,7 +221,10 @@ async function fetchAllPages(baseUrl: string, cap = 8): Promise<any[]> {
     params = (j && j.next_page_params) || null;
     if (!params) break;
   }
-  return items;
+  // #WO-6: cap-hit jelzés — `params` csak akkor nem-null, ha a cap-et elértük ÉS van még
+  // több adat (a lapok kimerülésekor null-ra állítjuk és break-elünk). Így a hívó tudja,
+  // hogy a holdings-lista CSONKÍTVA van (nagy-wallet edge case, csendes undercount ellen).
+  return { items, truncated: params != null };
 }
 
 async function usdHuf(): Promise<number> {
@@ -221,17 +234,20 @@ async function usdHuf(): Promise<number> {
   } catch { return 372; }
 }
 
-async function chainAssets(addr: string, chain: Chain, factor: number): Promise<{ assets: Asset[]; nfts: Nft[]; nftCount: number; dust: number }> {
+async function chainAssets(addr: string, chain: Chain, factor: number): Promise<{ assets: Asset[]; nfts: Nft[]; nftCount: number; dust: number; truncated: boolean }> {
   // KÜLÖN hibakezelés fetch-enként (audit #5): a token-endpoint 429-e NE dobja el a
   // lánc native-egyenlegét. Az account külön try/catch-el, a token/NFT lapozók sosem
   // dobnak (részleges lap is jobb mint 0). Így egy endpoint hibája nem visz mindent.
-  const [acct, tokItems, nftItems] = await Promise.all([
+  const [acct, tokPage, nftPage] = await Promise.all([
     // #28: a native balance-fetch RETRY-vel — 1 db 429 ne dobja a lánc legértékesebb
     // eszközét (native coin). Izoláció megmarad (.catch → üres, nem blokkol).
     jgetRetry(`${chain.host}/api/v2/addresses/${addr}`, 15000, {}, 2).catch(() => ({} as any)),
     fetchAllPages(`${chain.host}/api/v2/addresses/${addr}/tokens?type=ERC-20`, 8),
     fetchAllPages(`${chain.host}/api/v2/addresses/${addr}/nft?type=ERC-721%2CERC-1155`, 6),
   ]);
+  const tokItems = tokPage.items;
+  const nftItems = nftPage.items;
+  const truncated = tokPage.truncated || nftPage.truncated; // #WO-6: holdings csonkítva?
   const assets: Asset[] = [];
   let dust = 0;
   const mk = (symbol: string, name: string, contract: string, amount: number, rate: number, verified: boolean): Asset => ({
@@ -266,10 +282,10 @@ async function chainAssets(addr: string, chain: Chain, factor: number): Promise<
     collection: (n.token || {}).name || "NFT", tokenId: String(n.id || "").slice(0, 8),
     image: (n.metadata || {}).image_url || (n.image_url ?? null), chain: chain.id,
   }));
-  return { assets, nfts, nftCount: nftItems.length, dust };
+  return { assets, nfts, nftCount: nftItems.length, dust, truncated };
 }
 
-export async function fetchPortfolio(addresses: string[], chainIds: string[], factorIn?: number): Promise<Portfolio> {
+export async function fetchPortfolio(addresses: string[], chainIds: string[], factorIn?: number, skipCrossCheck = false): Promise<Portfolio> {
   // #17: az FX-faktort a hívó átfűzheti (aggregate), hogy ne kérjük wallet-enként
   // újra (N+1 CoinGecko-hívás → rate-limit → HUF-inkonzisztencia).
   const factor = factorIn ?? await usdHuf();
@@ -278,7 +294,7 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
   for (const addr of addresses) for (const c of chains) {
     jobs.push(
       chainAssets(addr, c, factor).then((r) => ({ ok: true, chain: c.id, ...r }))
-        .catch(() => ({ ok: false, chain: c.id, assets: [], nfts: [], nftCount: 0, dust: 0 })),
+        .catch(() => ({ ok: false, chain: c.id, assets: [], nfts: [], nftCount: 0, dust: 0, truncated: false })),
     );
   }
   const results = await Promise.all(jobs);
@@ -287,10 +303,11 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
   const nfts: Nft[] = [];
   const perChainUsd: Record<string, number> = {};
   const chainErrors: string[] = [];
-  let dustFiltered = 0, nftCount = 0;
+  let dustFiltered = 0, nftCount = 0, holdingsTruncated = false;
   for (const r of results) {
     if (!r.ok) { if (!chainErrors.includes(r.chain)) chainErrors.push(r.chain); continue; }
     assets.push(...r.assets); nfts.push(...r.nfts); nftCount += r.nftCount; dustFiltered += r.dust;
+    if (r.truncated) holdingsTruncated = true;
   }
   // azonos (contract+chain) tételek összevonása több cím esetén
   const merged = new Map<string, Asset>();
@@ -305,10 +322,14 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
   // Keyless (nincs CG-kulcs): verified = CSAK kanonikus (lánc, contract) egyezés.
   // CG-kulccsal: batch kereszt-ellenőrzés — verified ha a CoinGecko listázza a
   // contractot (vagy kanonikus). A "allowlist" literál a keyless módot jelöli a UI-nak.
+  // #WO-9: CG-kulccsal a kereszt-ellenőrzés IZOLÁLHATÓ (skipCrossCheck), hogy az
+  // aggregate.ts a több tárca union-jén EGYETLEN batch-et futtasson (kevesebb 429-kockázat)
+  // — így egy rate-limit nem flip-el valódi tokeneket unverified-re. Egyedülálló hívásnál
+  // (skipCrossCheck=false) a régi viselkedés marad.
   let pricingMode: "coingecko" | "allowlist" = "allowlist";
   if (CG_KEY) {
     pricingMode = "coingecko";
-    await crossCheckCoinGecko(allAssets, factor);
+    if (!skipCrossCheck) await crossCheckCoinGecko(allAssets, factor);
   }
 
   const byVal = (x: Asset, y: Asset) => y.valueUsd - x.valueUsd;
@@ -323,9 +344,15 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
   const suspiciousFiltered = allAssets.filter((a) => !capOk(a)).length;
 
   const totalUsd = verified.reduce((s, a) => s + a.valueUsd, 0);
+  // NATIVE-CAP jelzés: a native coin (megbízható lánc-ár) NEM esik ki a totálból egy
+  // szimpla $1M plafonon (egy valódi whale ETH/BTC/SOL legit) — DE ha > sanity cap,
+  // "szokatlanul nagy, ellenőrizd" flaget kap, hogy egy milliárdos total ne látsszon
+  // jelöletlen, megkérdőjelezhetetlen igazságnak (pl. egy csere-hidegtárca / decimals-hiba).
+  let oversizedNativeUsd = 0;
   for (const a of verified) {
     a.allocationPct = totalUsd ? (100 * a.valueUsd) / totalUsd : 0;
     perChainUsd[a.chain] = (perChainUsd[a.chain] || 0) + a.valueUsd;
+    if (a.contract === "native" && a.valueUsd > SANITY_CAP_USD) { a.oversized = true; oversizedNativeUsd += a.valueUsd; }
   }
   for (const a of unverifiedReal) a.allocationPct = 0; // nincs a totálban → nincs allokáció-%
 
@@ -333,7 +360,8 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
   const list = [...verified, ...unverifiedReal].sort(byVal);
   return {
     addresses, chains: chainIds, totalUsd, totalHuf: totalUsd * factor,
-    assetCount: list.length, dustFiltered, suspiciousFiltered, usdHufFactor: factor, perChainUsd, pricingMode,
+    assetCount: list.length, dustFiltered, suspiciousFiltered, oversizedNativeUsd, usdHufFactor: factor, perChainUsd,
+    holdingsTruncated, pricingMode,
     assets: list, unverifiedAssets: unverifiedReal.slice(0, 40), nfts: nfts.slice(0, 150), nftCount, chainErrors,
   };
 }
@@ -343,7 +371,8 @@ export async function fetchPortfolio(addresses: string[], chainIds: string[], fa
  *  Ami a CG-n listázva van → verified + pontos ár. Ami nincs / hibára fut (429) →
  *  FAIL-CLOSED (audit #3): verified marad IGAZ csak ha a contract kanonikus, különben
  *  false. Így egy rate-limit NEM hagy egy scam-tokent tévesen verifikáltnak. */
-async function crossCheckCoinGecko(assets: Asset[], factor: number): Promise<void> {
+export const HAS_CG_KEY = !!CG_KEY;
+export async function crossCheckCoinGecko(assets: Asset[], factor: number): Promise<void> {
   const byChain = new Map<string, Asset[]>();
   for (const a of assets) {
     if (a.contract === "native") continue; // native már verified

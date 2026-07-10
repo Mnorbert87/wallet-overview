@@ -91,8 +91,9 @@ export async function buildOverview(address: string): Promise<Overview> {
   }
 
   for (const t of tokens) {
-    const ym = new Date(t.timeStamp * 1000).toISOString().slice(0, 7);
-    monthCount.set(ym, (monthCount.get(ym) || 0) + 1);
+    // #WO-7: NEM növeljük itt a monthCount-ot — a "legaktívabb hónap" a headline txCount-tal
+    // (normal.length) KONZISZTENS, csak normal-tx-eket számol. Egy normal-tx több token-
+    // transfer-eventet emittálhat, így a blend félrevezetően a tx-számnál nagyobbat adna.
     // Token USD/HUF értékelés = 2. kör (per-token CoinGecko id kell); MVP-ben az
     // ÖSSZEGET ETH-ben nem keverjük, a sorban a token-mennyiség jelenik meg.
     rows.push({

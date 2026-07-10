@@ -4,13 +4,26 @@
 // kívül, ugyanaz az őszinte minta, mint az EVM oldalon.
 import { Asset } from "./multichain";
 
-const RPC = "https://api.mainnet-beta.solana.com";
+// #WO-runtime: a public api.mainnet-beta.solana.com böngésző-originből 403-at ad, ezért
+// KONFIGURÁLHATÓ RPC: saját Helius-kulcs (VITE_HELIUS_KEY) VAGY tetszőleges RPC-URL
+// (VITE_SOLANA_RPC). Fallback a public endpoint — ha a felhasználó nem ad kulcsot, a SOL
+// best-effort (a fetchSolana hibát ad vissza, a többi lánc NEM törik). Kulccsal valós.
+const HELIUS_KEY = (import.meta.env.VITE_HELIUS_KEY as string) || "";
+const RPC =
+  (import.meta.env.VITE_SOLANA_RPC as string) ||
+  (HELIUS_KEY ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_KEY}` : "https://api.mainnet-beta.solana.com");
 const SPL_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 // Token-2022 (SPL Token Extensions) — külön program-id. Best-effort: ha a public
 // RPC nem támogatja / hibázik, üresként kezeljük, a legacy SPL nem törik.
 const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 const CG = "https://api.coingecko.com/api/v3";
+const CG_KEY = (import.meta.env.VITE_COINGECKO_KEY as string) || "";
 const CHAIN_COLOR = "#14f195";
+
+// CoinGecko Demo-kulcs MINDIG header-ben (soha URL query-ben: Referer/history-leak).
+function cgHeaders(): Record<string, string> {
+  return CG_KEY ? { "x-cg-demo-api-key": CG_KEY } : {};
+}
 
 // Curated SPL mint → CoinGecko-id (valódi likvid tokenek). A többi SPL → unverified.
 const SPL_ALLOW: Record<string, { symbol: string; cg: string }> = {
@@ -50,12 +63,22 @@ async function rpc(method: string, params: any[]): Promise<any> {
   throw lastErr;
 }
 
+// #WO-2: ár-retry/backoff (mint az rpc() balance-ág) — egy tranziens CG 429/5xx NE
+// ejtse ki a SOL-t/SPL-t a headline-totálból (verified=false). Az ár-ág most ugyanolyan
+// ellenálló, mint a balance-ág; tartós kimaradásnál marad a best-effort (px=0, unverified).
 async function cgPrices(ids: string[]): Promise<Record<string, { usd: number }>> {
   if (!ids.length) return {};
-  try {
-    const r = await fetch(`${CG}/simple/price?ids=${[...new Set(ids)].join(",")}&vs_currencies=usd`);
-    return r.ok ? await r.json() : {};
-  } catch { return {}; }
+  const url = `${CG}/simple/price?ids=${[...new Set(ids)].join(",")}&vs_currencies=usd`;
+  const headers = { Accept: "application/json", ...cgHeaders() };
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(url, { headers });
+      if (r.ok) return await r.json();
+      if (r.status !== 429 && r.status < 500) return {}; // nem-retriable → best-effort üres
+    } catch { /* hálózati hiba → retry */ }
+    if (i < 2) await new Promise((res) => setTimeout(res, 400 * (i + 1)));
+  }
+  return {};
 }
 
 export async function fetchSolana(addr: string, factor: number): Promise<{ assets: Asset[]; error?: boolean }> {

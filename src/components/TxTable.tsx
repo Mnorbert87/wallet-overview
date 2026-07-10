@@ -2,8 +2,9 @@ import { useState } from "react";
 import { TxRow } from "../lib/compute";
 import { fmtUsd, fmtHuf, fmtDate } from "../lib/format";
 import { useT } from "../lib/i18n";
+import { exportTxs } from "../lib/csv";
 
-export function TxTable({ rows, currency }: { rows: TxRow[]; currency: "usd" | "huf" }) {
+export function TxTable({ rows, currency, address }: { rows: TxRow[]; currency: "usd" | "huf"; address?: string }) {
   const t = useT();
   const [filter, setFilter] = useState<"all" | "in" | "out" | "eth">("all");
   const fmt = currency === "usd" ? fmtUsd : fmtHuf;
@@ -30,8 +31,16 @@ export function TxTable({ rows, currency }: { rows: TxRow[]; currency: "usd" | "
     <div className="glass rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
         <h3 className="text-sm font-semibold text-slate-200">{t("tx.title")}</h3>
-        <div className="flex gap-1">
+        <div className="flex gap-1 items-center flex-wrap">
           <Btn k="all" label={t("tx.all")} /><Btn k="in" label={t("tx.in")} /><Btn k="out" label={t("tx.out")} /><Btn k="eth" label="ETH" />
+          {rows.length > 0 && (
+            <button
+              onClick={() => exportTxs(address || "wallet", rows)}
+              className="px-3 py-1 rounded-lg text-xs text-slate-400 hover:text-slate-200 border border-white/10 hover:border-white/20 transition-colors"
+            >
+              {t("pf.csv")}
+            </button>
+          )}
         </div>
       </div>
       <div className="overflow-x-auto">

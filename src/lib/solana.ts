@@ -52,6 +52,9 @@ async function rpc(method: string, params: any[]): Promise<any> {
       const r = await fetch(RPC, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        // #WO key-leak: a Helius api-key az RPC-URL query-jében van → no-referrer,
+        // hogy ne szivárogjon ki Referer-headerben.
+        referrerPolicy: "no-referrer",
       });
       if (!r.ok) {
         if (r.status === 429 || r.status >= 500) { lastErr = new Error(`Solana RPC ${r.status}`); }
@@ -76,7 +79,7 @@ async function cgPrices(ids: string[]): Promise<Record<string, { usd: number }>>
   const headers = { Accept: "application/json", ...cgHeaders() };
   for (let i = 0; i < 3; i++) {
     try {
-      const r = await fetch(url, { headers });
+      const r = await fetch(url, { headers, referrerPolicy: "no-referrer" });
       if (r.ok) return await r.json();
       if (r.status !== 429 && r.status < 500) return {}; // nem-retriable → best-effort üres
     } catch { /* hálózati hiba → retry */ }

@@ -47,7 +47,9 @@ async function call(params: Record<string, string>): Promise<any> {
   let lastErr: unknown;
   for (let i = 0; i < 3; i++) {
     try {
-      const r = await fetch(`${BASE}?${q}`);
+      // #WO key-leak: no-referrer → az apikey-t tartalmazó URL SOHA nem megy ki
+      // Referer-headerben harmadik félnek (a query-string kulcs így nem szivárog).
+      const r = await fetch(`${BASE}?${q}`, { referrerPolicy: "no-referrer" });
       if (!r.ok) {
         if (r.status === 429 || r.status >= 500) { lastErr = new Error(`Etherscan ${r.status}`); await sleep(500 * (i + 1)); continue; }
         throw new Error(`Etherscan ${r.status}`);

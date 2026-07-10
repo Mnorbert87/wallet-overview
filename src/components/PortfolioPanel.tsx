@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Portfolio, CHAIN_META } from "../lib/multichain";
 import { fmtUsd, fmtHuf } from "../lib/format";
 import { useT } from "../lib/i18n";
+import { exportAssets } from "../lib/csv";
 
 const COLORS = ["#22d3ee", "#67e8f9", "#38bdf8", "#818cf8", "#a78bfa", "#c084fc", "#5eead4", "#94a3b8"];
 
@@ -40,6 +41,14 @@ export function PortfolioPanel({ p, currency }: { p: Portfolio; currency: "usd" 
             {p.chainErrors.length > 0 && <span className="text-amber-400/70">{t("pf.chainDown", { c: p.chainErrors.join(", ") })}</span>}
           </p>
         </div>
+        {p.assets.length > 0 && (
+          <button
+            onClick={() => exportAssets(p.addresses[0] || "wallet", p.assets)}
+            className="px-3 py-1 rounded-lg text-xs text-slate-400 hover:text-slate-200 border border-white/10 hover:border-white/20 transition-colors shrink-0"
+          >
+            {t("pf.csv")}
+          </button>
+        )}
       </div>
 
       {/* Per-lánc allokáció-sáv */}

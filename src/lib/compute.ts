@@ -46,7 +46,12 @@ export async function buildOverview(address: string): Promise<Overview> {
   const firstTx = allSecs.length ? Math.min(...allSecs) : Math.floor(Date.now() / 1000);
   const lastTx = allSecs.length ? Math.max(...allSecs) : firstTx;
 
-  const [pmap, spot] = await Promise.all([ethPriceMap(firstTx), ethSpot()]);
+  // ethSpot már nem dob (retry+{0,0}); a catch belt-and-suspenders — a spot csak a
+  // JELENLEGI holding-értéket árazza, sosem szabad a teljes fetchelt history-t eldobnia.
+  const [pmap, spot] = await Promise.all([
+    ethPriceMap(firstTx),
+    ethSpot().catch(() => ({ usd: 0, huf: 0 })),
+  ]);
 
   const gas: DualValue = { eth: 0, usd: 0, huf: 0 };
   const inflow: DualValue = { eth: 0, usd: 0, huf: 0 };

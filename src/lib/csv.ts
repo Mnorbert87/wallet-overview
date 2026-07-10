@@ -1,4 +1,4 @@
-import { Holding } from "./holdings";
+import { Asset } from "./multichain";
 import { TxRow } from "./compute";
 import { fmtDate } from "./format";
 
@@ -24,12 +24,14 @@ function download(name: string, csv: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-export function exportHoldings(address: string, holdings: Holding[]) {
+// A LIVE multichain portfólió (Asset-modell) exportja. A `verified` oszlop jelzi,
+// hogy az ár megbízható forrásból van-e (a nem-verifikáltak NINCSENEK a totálban).
+export function exportAssets(address: string, assets: Asset[]) {
   const rows = [
-    ["symbol", "name", "contract", "amount", "price_usd", "value_usd", "value_huf", "allocation_pct"],
-    ...holdings.map((h) => [
-      h.symbol, h.name, h.contract, h.amount, h.priceUsd.toFixed(6),
-      h.valueUsd.toFixed(2), Math.round(h.valueHuf), h.allocationPct.toFixed(2),
+    ["chain", "symbol", "name", "contract", "amount", "price_usd", "value_usd", "value_huf", "allocation_pct", "verified"],
+    ...assets.map((a) => [
+      a.chainName, a.symbol, a.name, a.contract, a.amount, a.priceUsd.toFixed(6),
+      a.valueUsd.toFixed(2), Math.round(a.valueHuf), a.allocationPct.toFixed(2), a.verified ? "1" : "0",
     ]),
   ];
   download(`holdings_${address.slice(0, 8)}.csv`, toCsv(rows));

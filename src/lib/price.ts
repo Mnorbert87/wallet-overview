@@ -28,24 +28,35 @@ export function priceDataDegraded(): boolean {
   return _lastDegraded;
 }
 
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+// #WO price-retry: minden CG-hívás retry-el 429/5xx-re (mint bitcoin.ts/solana.ts/
+// multichain.ts). null visszatérés = végleges bukás (a hívó dönt: degradált/0).
+async function cgGet(path: string): Promise<any | null> {
+  const headers: Record<string, string> = {};
+  if (KEY) headers["x-cg-demo-api-key"] = KEY;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(`${CG}/${path}`, { headers, referrerPolicy: "no-referrer" });
+      if (r.ok) return await r.json();
+      if (r.status !== 429 && r.status < 500) return null; // nem-retriable
+    } catch { /* hálózati hiba → retry */ }
+    if (i < 2) await sleep(500 * (i + 1));
+  }
+  return null;
+}
+
 // Egy pénznem napi ársora. Hiba esetén NEM dob — üres sort ad vissza és jelzi a bukást.
 async function series(vs: string, days: number): Promise<Record<string, number>> {
   const q = new URLSearchParams({ vs_currency: vs, days: String(days) });
-  const headers: Record<string, string> = {};
-  if (KEY) headers["x-cg-demo-api-key"] = KEY;
   const out: Record<string, number> = {};
-  try {
-    const r = await fetch(`${CG}/coins/ethereum/market_chart?${q}`, { headers });
-    if (!r.ok) {
-      _lastDegraded = true;
-      return out;
-    }
-    const j = await r.json();
-    for (const [ms, price] of j.prices as [number, number][]) {
-      out[new Date(ms).toISOString().slice(0, 10)] = price;
-    }
-  } catch {
+  const j = await cgGet(`coins/ethereum/market_chart?${q}`);
+  if (!j || !Array.isArray(j.prices)) {
     _lastDegraded = true;
+    return out;
+  }
+  for (const [ms, price] of j.prices as [number, number][]) {
+    out[new Date(ms).toISOString().slice(0, 10)] = price;
   }
   return out;
 }
@@ -60,7 +71,10 @@ export async function ethPriceMap(firstTxSec: number): Promise<PriceMap> {
   // #5: ha a tárca-history hosszabb mint amennyi ársort le tudunk kérni (keyless
   // 365 nap), a 365 napnál régebbi tx-ek az ~1 éve árán értékelődnek → degradált.
   if (wantDays > maxDays) _lastDegraded = true;
-  const [usd, huf] = await Promise.all([series("usd", spanDays), series("huf", spanDays)]);
+  // #WO price-retry: a két szériát SZÉRIÁLISAN kérjük (nem Promise.all) — felezi a
+  // pillanatnyi CG-request-burst-öt, kevesebb 429 a keyless free-tieren.
+  const usd = await series("usd", spanDays);
+  const huf = await series("huf", spanDays);
   const map: PriceMap = {};
   for (const d of Object.keys(usd)) map[d] = { usd: usd[d], huf: huf[d] ?? 0 };
   // huf-only napok (ritka) feltöltése
@@ -79,11 +93,9 @@ export function priceAt(map: PriceMap, unixSec: number): DayPrice {
   return map[best];
 }
 
-/** ETH mostani ára (USD+HUF) — a holding-értékhez. */
+/** ETH mostani ára (USD+HUF) — a holding-értékhez. Hiba esetén {0,0}, NEM dob:
+ *  egy tranziens 429 a spot-áron NEM ejtheti el a teljes (már lekért) Overview-t. */
 export async function ethSpot(): Promise<DayPrice> {
-  const headers: Record<string, string> = {};
-  if (KEY) headers["x-cg-demo-api-key"] = KEY;
-  const r = await fetch(`${CG}/simple/price?ids=ethereum&vs_currencies=usd,huf`, { headers });
-  const j = await r.json();
-  return { usd: j.ethereum?.usd ?? 0, huf: j.ethereum?.huf ?? 0 };
+  const j = await cgGet("simple/price?ids=ethereum&vs_currencies=usd,huf");
+  return { usd: j?.ethereum?.usd ?? 0, huf: j?.ethereum?.huf ?? 0 };
 }

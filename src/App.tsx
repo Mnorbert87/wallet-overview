@@ -355,7 +355,7 @@ function Result({ data, pf, pLoading, ens, primary, isMock }: { data: Overview |
       {pf && <NftGallery nfts={pf.nfts.map((n) => ({ collection: n.collection, tokenId: n.tokenId, image: n.image }))} total={pf.nftCount} />}
 
       {/* Aktivitás tx-tábla */}
-      {data && <TxTable rows={data.txRows} currency={cur} />}
+      {data && <TxTable rows={data.txRows} currency={cur} address={data.address} />}
 
       {/* Approvals biztonsági panel — valós revoke.cash deep-link (nincs fake adat) */}
       {headAddr && <div className="mt-6"><ApprovalsPanel address={headAddr} /></div>}

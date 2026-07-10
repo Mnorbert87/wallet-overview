@@ -69,20 +69,27 @@ async function call(params: Record<string, string>): Promise<any> {
 // Végiglapozza az ÖSSZES sort (asc) — aggregációhoz (gas, cashflow, hó-bontás).
 // #8: terminal hiba egy lapon → visszaadjuk az EDDIG felgyűlt sorokat (partial),
 // nem dobjuk el az egész history-t egyetlen kései 429 miatt.
-async function callAll(params: Record<string, string>): Promise<any[]> {
+// #WO-1: `truncated` jelzi, ha a history CSONKA lehet — vagy egy lap hibára futott
+// lapkimerülés ELŐTT, vagy elértük a MAX_PAGES plafont tele lappal. A hívó ezt
+// felviszi az Overview-ba, hogy a "gas elégetve" / cashflow ne látsszon teljesnek.
+async function callAll(params: Record<string, string>): Promise<{ rows: any[]; truncated: boolean }> {
   const out: any[] = [];
+  let truncated = false;
   for (let page = 1; page <= MAX_PAGES; page++) {
     let rows: any[];
     try {
       rows = await call({ ...params, sort: "asc", page: String(page), offset: String(PAGE_SIZE) });
     } catch {
-      break; // partial-return: ami eddig megvan, azt visszaadjuk
+      truncated = true; // #WO-1: hiba lapkimerülés előtt → partial, jelzés a hívónak
+      break;
     }
     out.push(...rows);
     if (rows.length < PAGE_SIZE) break; // ez volt az utolsó lap
-    if (page < MAX_PAGES) await sleep(PAGE_DELAY_MS);
+    // #WO-1: elértük az utolsó engedélyezett lapot, de az még tele volt → van több adat
+    if (page === MAX_PAGES) { truncated = true; break; }
+    await sleep(PAGE_DELAY_MS);
   }
-  return out;
+  return { rows: out, truncated };
 }
 
 function mapNormal(rows: any[], a: string): EthTx[] {
@@ -117,22 +124,22 @@ function mapToken(rows: any[], a: string): TokenTx[] {
   });
 }
 
-export async function getNormalTxs(addr: string): Promise<EthTx[]> {
+export async function getNormalTxs(addr: string): Promise<{ txs: EthTx[]; truncated: boolean }> {
   const a = addr.toLowerCase();
-  const rows = await callAll({
+  const { rows, truncated } = await callAll({
     module: "account", action: "txlist", address: addr,
     startblock: "0", endblock: "99999999",
   });
-  return mapNormal(rows, a);
+  return { txs: mapNormal(rows, a), truncated };
 }
 
-export async function getTokenTxs(addr: string): Promise<TokenTx[]> {
+export async function getTokenTxs(addr: string): Promise<{ txs: TokenTx[]; truncated: boolean }> {
   const a = addr.toLowerCase();
-  const rows = await callAll({
+  const { rows, truncated } = await callAll({
     module: "account", action: "tokentx", address: addr,
     startblock: "0", endblock: "99999999",
   });
-  return mapToken(rows, a);
+  return { txs: mapToken(rows, a), truncated };
 }
 
 // Csak a legfrissebb N native tx — egy desc-lekérés, lapozás nélkül.

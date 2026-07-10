@@ -9,6 +9,16 @@ const COLORS = ["#22d3ee", "#67e8f9", "#38bdf8", "#818cf8", "#a78bfa", "#c084fc"
 
 export function PortfolioPanel({ p, currency }: { p: Portfolio; currency: "usd" | "huf" }) {
   const t = useT();
+  // #WO-31: tárcák vannak, de 0 eszköz — tiszta üres-állapot a félrevezető
+  // "0 eszköz, 0 lánc" fejléc + üres pie/allokáció-sáv helyett.
+  if (p.assets.length === 0) {
+    return (
+      <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}
+        className="glass rounded-2xl p-5 mb-6 text-sm text-slate-400 text-center py-10">
+        {t("pf.noHoldings")}
+      </motion.div>
+    );
+  }
   const fmt = currency === "usd" ? fmtUsd : fmtHuf;
   const total = currency === "usd" ? p.totalUsd : p.totalHuf;
   const val = (a: { valueUsd: number; valueHuf: number }) => (currency === "usd" ? a.valueUsd : a.valueHuf);

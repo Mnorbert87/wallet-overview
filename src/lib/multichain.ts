@@ -23,16 +23,20 @@ const DUST_USD = 0.01;
 // promo/URL-nevek, telegram-linkek, "claim/reward", unicode-trükk szimbólum,
 // 0-ár/dust. Ezeket ELTÁVOLÍTJUK. A nem-spam tokenek megjelennek (értékkel);
 // az ár-megbízhatóság külön flag (verified) — a headline total csak abból.
-// A SZIMBÓLUMRA (ticker) fut — a ticker sosem URL/domain, ezért itt a TLD-teszt is
-// biztonságos (a "yearn.finance" NÉV, nem ticker; a ticker "YFI").
-const SPAM_RE =
-  /(https?:\/\/|www\.|[a-z0-9-]+\.(com|io|xyz|org|net|finance|app|site|vip|top|club|pro|cash|gift)\b|t\.me|telegram|discord|claim|reward|airdrop|voucher|giveaway|bonus|\bfree\b|redeem|activate|visit|winner|congratulation|access|\brewards?\b|earn |presale|whitelist|\bnft\b\s*drop|👉|🎁|✅|🚀|💰)/i;
+// A SZIMBÓLUMRA (ticker) fut — a ticker rövid, sosem tartalmaz URL-t/teljes promo-mondatot.
+// #WO-5 FIX: a ticker-mintát SZŰKÍTJÜK csak STRUKTURÁLIS spamre (URL-scheme, domain-TLD,
+// t.me/telegram/discord, emoji). A korábbi bare promo-szavak (claim/reward/access/visit/
+// bonus/free…) SUBSTRING-ként hamisan dobták a legit tickereket (FREE, ACCESS, REWARD,
+// ACCESSPROTOCOL…). A promo-szavak innentől CSAK a NÉV-mintában élnek, \b-határokkal.
+const SPAM_TICKER_RE =
+  /(https?:\/\/|www\.|[a-z0-9-]+\.(com|io|xyz|org|net|finance|app|site|vip|top|club|pro|cash|gift)\b|t\.me|telegram|discord|👉|🎁|✅|🚀|💰)/i;
 
 // #7 FIX: a NÉVRE enyhébb minta — NINCS bare domain-TLD alternáció (az dobta a
-// valódi yearn.finance/YFI, Harvest, Cream, Origin.finance blue-chipeket) és nincs
-// bare "access"/"earn". Csak egyértelmű promo/scam-frázisok + explicit URL-scheme.
+// valódi yearn.finance/YFI, Harvest, Cream, Origin.finance blue-chipeket).
+// #WO-5: a promo-szavak \b-határokkal, hogy csak ÖNÁLLÓ szóként matcheljenek
+// (a "REWARDS"/"ACCESSPROTOCOL" mint teljes szó igen, de substringként ne).
 const NAME_SPAM_RE =
-  /(https?:\/\/|www\.|t\.me|telegram|discord|claim|airdrop|voucher|giveaway|\bfree\b|redeem|activate|\bvisit\b|winner|congratulation|presale|whitelist|👉|🎁|✅|🚀|💰)/i;
+  /(https?:\/\/|www\.|t\.me|telegram|discord|\bclaim\b|\bairdrop\b|\bvoucher\b|\bgiveaway\b|\bfree\b|\bredeem\b|\bactivate\b|\bvisit\b|\bwinner\b|\bcongratulation|\bpresale\b|\bwhitelist\b|\bbonus\b|\breward|\baccess\b|👉|🎁|✅|🚀|💰)/i;
 
 // Egyetlen nem-verified token, aminek a Blockscout-ára > ennyi USD-t ad, szinte
 // biztosan HAMIS árú (láttunk $2.8Mrd fake pozíciót) → nem verified (kimarad a
@@ -44,11 +48,12 @@ function isSpamToken(symbol: string, name: string, rate: number, valueUsd: numbe
   const n = (name || "").trim();
   if (!s) return true;                                  // nincs szimbólum
   if (s.length > 24 || n.length > 60) return true;      // abszurd hosszú = szemét
-  if (SPAM_RE.test(s) || NAME_SPAM_RE.test(n)) return true;  // #7: névre enyhébb minta
+  if (SPAM_TICKER_RE.test(s) || NAME_SPAM_RE.test(n)) return true;  // #WO-5: ticker szűk, névre enyhébb minta
   // #23: NE dobjunk minden nem-ASCII szimbólumot (valódi nem-latin projekt-tokenek,
   // currency-glyph maradhat unverified). CSAK a valódi trükköket: zero-width / bidi-
   // control / Cyrillic / Greek homoglyph (pl. "ЕТН" = fake ETH).
-  if (/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF\u0400-\u04FF\u0370-\u03FF]/.test(s)) return true;
+  // #WO-6: single-glyph Greek currency-szimbolumok (Ξ, Ω) whitelistelve.
+  if (s !== "Ξ" && s !== "Ω" && /[\u200B-\u200F\u202A-\u202E\u2060\uFEFF\u0400-\u04FF\u0370-\u03FF]/.test(s)) return true;
   if (rate <= 0 || valueUsd < DUST_USD) return true;    // ár nélkül / dust
   return false;
 }
@@ -161,6 +166,7 @@ export interface Portfolio {
   holdingsTruncated: boolean; // #WO-6: elértük a lapozás-cap-et → a lista csonkítva lehet
   perWalletUsd?: Record<string, number>; // cím → verified USD (per-tárca bontás)
   walletsWithAssets?: string[]; // #WO-8: van eszköze (akár unverified) — "ár n/a" vs "$0" megkülönböztetés
+  walletsErrored?: string[]; // #WO-8b: cím-szintű fetch-hiba (SOL/BTC) — "hiba" vs fabrikált "$0"
   pricingMode: "coingecko" | "allowlist"; // hogyan ellenőriztük az árat
   assets: Asset[];           // MINDEN valódi (nem-spam) token — verified + best-effort
   unverifiedAssets: Asset[]; // nem ellenőrzött árú tokenek (a listában látszanak, NEM a totálban)

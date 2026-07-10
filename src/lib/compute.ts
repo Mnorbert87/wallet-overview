@@ -36,11 +36,14 @@ export interface Overview {
   tokenSymbols: string[];
   counterparties: { address: string; count: number }[]; // top interakciós címek
   priceDegraded: boolean; // #6: az ársor hiányos/vágott → USD/HUF becslés megbízhatatlan
+  txTruncated: boolean; // #WO-1: a tx-előzmény csonka (lapozás-cap / hiba) → gas + cashflow alábecsülhet
 }
 
 export async function buildOverview(address: string): Promise<Overview> {
   const addr = address.toLowerCase();
-  const [normal, tokens] = await Promise.all([getNormalTxs(addr), getTokenTxs(addr)]);
+  const [normalRes, tokenRes] = await Promise.all([getNormalTxs(addr), getTokenTxs(addr)]);
+  const normal = normalRes.txs, tokens = tokenRes.txs;
+  const txTruncated = normalRes.truncated || tokenRes.truncated; // #WO-1
 
   const allSecs = [...normal.map((t) => t.timeStamp), ...tokens.map((t) => t.timeStamp)];
   const firstTx = allSecs.length ? Math.min(...allSecs) : Math.floor(Date.now() / 1000);
@@ -133,5 +136,6 @@ export async function buildOverview(address: string): Promise<Overview> {
       .sort((a, b) => b.count - a.count)
       .slice(0, 6),
     priceDegraded: priceDataDegraded(), // #6: az ársor hiányos volt?
+    txTruncated, // #WO-1: a tx-előzmény csonka volt?
   };
 }

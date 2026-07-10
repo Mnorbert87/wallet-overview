@@ -11,11 +11,12 @@ const TYPE_META: Record<string, { label: string; color: string }> = {
 };
 
 export function Watchlist({
-  wallets, perWalletUsd, walletsWithAssets, hufFactor, currency, onAdd, onRemove, onRename,
+  wallets, perWalletUsd, walletsWithAssets, walletsErrored, hufFactor, currency, onAdd, onRemove, onRename,
 }: {
   wallets: Wallet[];
   perWalletUsd?: Record<string, number>;
   walletsWithAssets?: string[];
+  walletsErrored?: string[];
   hufFactor: number;
   currency: "usd" | "huf";
   onAdd: (address: string, label: string) => string | undefined; // error v. undefined
@@ -69,6 +70,7 @@ export function Watchlist({
                   <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ background: `${t.color}22`, color: t.color }}>{t.label}</span>
                   {editing === w.id ? (
                     <input autoFocus value={editVal} onChange={(e) => setEditVal(e.target.value)}
+                      aria-label={tr("wl.rename")}
                       onBlur={() => { onRename(w.id, editVal); setEditing(null); }}
                       onKeyDown={(e) => { if (e.key === "Enter") { onRename(w.id, editVal); setEditing(null); } }}
                       className="bg-transparent border-b border-cyan/40 text-slate-100 text-sm outline-none w-32" />
@@ -81,8 +83,10 @@ export function Watchlist({
                   <span className="text-slate-600 text-xs font-mono truncate">{shortAddr(w.address)}</span>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  {/* #WO-8: három állapot — árazott érték / "ár n/a" (van eszköz, nincs verified ár) / rejtve amíg tölt */}
-                  {usd !== undefined ? (
+                  {/* #WO-8/#WO-8b: négy állapot — hiba (fetch elhalt) / árazott érték / "ár n/a" (van eszköz, nincs verified ár) / rejtve amíg tölt */}
+                  {walletsErrored?.includes(w.address) ? (
+                    <span className="text-red-400/70 text-xs" title={tr("wl.walletErrorTip")}>{tr("wl.walletError")}</span>
+                  ) : usd !== undefined ? (
                     <span className="text-slate-300">{currency === "usd" ? fmtUsd(usd) : fmtHuf(usd * hufFactor)}</span>
                   ) : walletsWithAssets?.includes(w.address) ? (
                     <span className="text-amber-400/70 text-xs" title={tr("wl.priceNaTip")}>{tr("wl.priceNa")}</span>

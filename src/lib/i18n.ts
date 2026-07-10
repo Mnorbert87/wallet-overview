@@ -134,6 +134,17 @@ const DICT: Record<string, [string, string]> = {
   "wl.priceNa": ["ár n/a", "price n/a"],
   "wl.priceNaTip": ["A tárcának van eszköze, de az ár most nem igazolható (kulcs nélkül / rate-limit) — nem a totálban.",
                     "Wallet holds assets, but the price can't be verified now (keyless / rate-limit) — not in the total."],
+  "wl.walletError": ["hiba", "error"],
+  "wl.walletErrorTip": ["A tárca adatait most nem sikerült lekérni (lánc-hiba / rate-limit) — nem $0, hanem ismeretlen.",
+                        "Could not fetch this wallet's data now (chain error / rate-limit) — not $0, just unknown."],
+  "wl.defaultLabel.evm": ["EVM tárca {n}", "EVM wallet {n}"],
+  "wl.defaultLabel.sol": ["Solana tárca {n}", "Solana wallet {n}"],
+  "wl.defaultLabel.btc": ["Bitcoin tárca {n}", "Bitcoin wallet {n}"],
+  "err.unknownFormat": ["Ismeretlen cím-formátum (ETH 0x… / SOL base58 / BTC bc1…/1…/3…).",
+                        "Unknown address format (ETH 0x… / SOL base58 / BTC bc1…/1…/3…)."],
+  "err.duplicate": ["Ez a cím már a listán van.", "This address is already in the list."],
+  "tx.truncatedActivity": ["⚠ A tranzakció-előzmény csonkítva (lapozás-limit vagy hiba) — az elégetett gas és a be/kimenő ETH ennek egy részét nem tartalmazza, azaz alábecsülhet.",
+                           "⚠ Transaction history is truncated (page limit or error) — burned gas and in/out ETH may omit part of it, i.e. can undercount."],
 };
 
 export function t(key: string, vars?: Record<string, string | number>): string {

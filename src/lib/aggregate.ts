@@ -15,6 +15,7 @@ export async function fetchWatchlist(wallets: Wallet[], evmChains: string[]): Pr
   const chainErrors: string[] = [];
   const nfts: Portfolio["nfts"] = [];
   const perWalletUsd: Record<string, number> = {};
+  const walletsErrored = new Set<string>(); // #WO-8b: cím-szintű fetch-hiba → NEM $0, hanem "hiba"
   let nftCount = 0, dustFiltered = 0, suspiciousFiltered = 0;
   let holdingsTruncated = false; // #WO-6: bármely EVM tárca lapozás-cap-be ütközött?
   let pricingMode: "coingecko" | "allowlist" = "allowlist";
@@ -50,14 +51,14 @@ export async function fetchWatchlist(wallets: Wallet[], evmChains: string[]): Pr
   for (const w of sol) {
     jobs.push((async () => {
       const r = await fetchSolana(w.address, factor);
-      if (r.error && !chainErrors.includes("sol")) chainErrors.push("sol");
+      if (r.error) { walletsErrored.add(w.address); if (!chainErrors.includes("sol")) chainErrors.push("sol"); }
       for (const a of r.assets) allAssets.push(Object.assign(a, { _w: w.address }));
     })());
   }
   for (const w of btc) {
     jobs.push((async () => {
       const r = await fetchBitcoin(w.address, factor);
-      if (r.error && !chainErrors.includes("btc")) chainErrors.push("btc");
+      if (r.error) { walletsErrored.add(w.address); if (!chainErrors.includes("btc")) chainErrors.push("btc"); }
       for (const a of r.assets) allAssets.push(Object.assign(a, { _w: w.address }));
     })());
   }
@@ -118,6 +119,9 @@ export async function fetchWatchlist(wallets: Wallet[], evmChains: string[]): Pr
   // Minden ismert tárcára állítsunk explicit értéket: verified USD, vagy 0 ha nincs
   // eszköze; a "van eszköz de nincs ár" esetet a undefined + walletsWithAssets jelöli.
   for (const w of wallets) {
+    // #WO-8b: errored tárcára NE írjunk $0-t — az a UI-ban valós, üres tárcaként
+    // látszana. Hagyjuk undefined-ként és a walletsErrored jelöli a "hiba" állapotot.
+    if (walletsErrored.has(w.address)) continue;
     if (!walletsWithAssets.has(w.address) && perWalletUsd[w.address] === undefined) {
       perWalletUsd[w.address] = 0; // valóban üres tárca → explicit $0
     }
@@ -136,7 +140,7 @@ export async function fetchWatchlist(wallets: Wallet[], evmChains: string[]): Pr
     chains: [...new Set(list.map((a) => a.chain))],
     totalUsd, totalHuf: totalUsd * factor,
     assetCount: list.length, dustFiltered, suspiciousFiltered, oversizedNativeUsd, usdHufFactor: factor,
-    perChainUsd, perWalletUsd, walletsWithAssets: [...walletsWithAssets], holdingsTruncated, pricingMode,
+    perChainUsd, perWalletUsd, walletsWithAssets: [...walletsWithAssets], walletsErrored: [...walletsErrored], holdingsTruncated, pricingMode,
     assets: list, unverifiedAssets: unverified.slice(0, 60),
     nfts: nfts.slice(0, 150), nftCount, chainErrors,
   };

@@ -1,5 +1,6 @@
 // Multi-wallet watchlist — WATCH-ONLY (csak cím, SOHA privkulcs/aláírás).
 // localStorage-ba perzisztálva; add/rename/remove; típus auto-detektálás.
+import { t } from "./i18n";
 
 export type WalletType = "evm" | "sol" | "btc";
 export interface Wallet { id: string; address: string; label: string; type: WalletType; }
@@ -39,9 +40,10 @@ let seq = 0;
 export function addWallet(list: Wallet[], address: string, label: string): { list: Wallet[]; error?: string } {
   const s = address.trim();
   const type = detectType(s);
-  if (!type) return { list, error: "Ismeretlen cím-formátum (ETH 0x… / SOL base58 / BTC bc1…/1…/3…)." };
+  // #WO-3: i18n KULCS-ot adunk vissza (nem nyers HU szöveg) — a hívó t()-vel oldja fel.
+  if (!type) return { list, error: "err.unknownFormat" };
   const norm = type === "evm" ? s.toLowerCase() : s;
-  if (list.some((w) => w.address === norm)) return { list, error: "Ez a cím már a listán van." };
+  if (list.some((w) => w.address === norm)) return { list, error: "err.duplicate" };
   const id = `${Date.now().toString(36)}-${(seq++).toString(36)}`;
   const next = [...list, { id, address: norm, label: label.trim() || defaultLabel(type, list), type }];
   saveWallets(next);
@@ -50,8 +52,9 @@ export function addWallet(list: Wallet[], address: string, label: string): { lis
 
 function defaultLabel(type: WalletType, list: Wallet[]): string {
   const n = list.filter((w) => w.type === type).length + 1;
-  const base = type === "evm" ? "EVM tárca" : type === "sol" ? "Solana tárca" : "Bitcoin tárca";
-  return `${base} ${n}`;
+  // #WO-4: az alap-címke i18n-en át (a persisted szöveg az aktuális nyelven készül,
+  // az EN-only publikus buildben így nem HU "EVM tárca" jelenik meg).
+  return t(`wl.defaultLabel.${type}`, { n });
 }
 
 export function removeWallet(list: Wallet[], id: string): Wallet[] {

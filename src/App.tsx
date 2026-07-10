@@ -94,7 +94,7 @@ export default function App() {
   // Cím(ek)/ENS hozzáadása a watchlisthez (a fő input és a Demó ezt hívja).
   const addToWatchlist = (rawAddr: string, label: string): string | undefined => {
     const { list, error: e } = addWallet(wallets, rawAddr, label);
-    if (e) return e;
+    if (e) return t(e); // #WO-3: addWallet i18n-kulcsot ad → itt fordítjuk
     setWallets(list);
   };
 
@@ -112,7 +112,7 @@ export default function App() {
     }
     setWallets(cur);
     if (added) setAddr("");
-    else if (lastErr) setError(lastErr);
+    else if (lastErr) setError(t(lastErr)); // #WO-3: i18n-kulcs → fordítás
   };
 
   const loadDemo = () => {
@@ -219,6 +219,7 @@ export default function App() {
           wallets={wallets}
           perWalletUsd={pf?.perWalletUsd}
           walletsWithAssets={pf?.walletsWithAssets}
+          walletsErrored={pf?.walletsErrored}
           hufFactor={pf?.usdHufFactor ?? 372}
           currency={primary}
           onAdd={addToWatchlist}
@@ -308,6 +309,11 @@ function Result({ data, pf, pLoading, ens, primary, isMock }: { data: Overview |
           {data.priceDegraded && (
             <div className="glass rounded-xl p-3 mb-5 text-xs text-amber-400/90 border-l-2 border-amber-400/50">
               {t("price.degraded")}
+            </div>
+          )}
+          {data.txTruncated && (
+            <div className="glass rounded-xl p-3 mb-5 text-xs text-amber-400/90 border-l-2 border-amber-400/60">
+              {t("tx.truncatedActivity")}
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
